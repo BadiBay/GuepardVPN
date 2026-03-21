@@ -283,14 +283,21 @@ async def process_days_input(message: Message, state: FSMContext):
     # Выдаем подписку в базе данных
     db.add_subscription(target_id, days)
 
-    # Генерируем ключ в панели, если его еще нет
+    # Генерируем ключ в панели, если его еще нет, или обновляем дату
     user_data = db.get_user(target_id)
     if user_data:
-        client_uuid = user_data[2]
+        balance, sub_end, client_uuid = user_data
+        expiry_ms = 0
+        if sub_end:
+            dt = datetime.strptime(sub_end, "%Y-%m-%d %H:%M:%S")
+            expiry_ms = int(dt.timestamp() * 1000)
+
         if not client_uuid:
-            new_uuid = await xui_api.add_client(target_id)
+            new_uuid = await xui_api.add_client(target_id, expiry_ms)
             if new_uuid:
                 db.update_uuid(target_id, new_uuid)
+        else:
+            await xui_api.update_client_expiry(client_uuid, target_id, expiry_ms)
 
         await message.answer(f"✅ Успешно! Пользователю {target_id} выдано {days} дней подписки.")
 
@@ -500,12 +507,19 @@ async def process_test_24h(callback: CallbackQuery):
     db.add_subscription(telegram_id, 1) # 1 день = 24 часа
     
     user_data = db.get_user(telegram_id)
-    client_uuid = user_data[2] if user_data else None
+    if user_data:
+        balance, sub_end, client_uuid = user_data
+        expiry_ms = 0
+        if sub_end:
+            dt = datetime.strptime(sub_end, "%Y-%m-%d %H:%M:%S")
+            expiry_ms = int(dt.timestamp() * 1000)
 
-    if not client_uuid:
-        new_uuid = await xui_api.add_client(telegram_id)
-        if new_uuid:
-            db.update_uuid(telegram_id, new_uuid)
+        if not client_uuid:
+            new_uuid = await xui_api.add_client(telegram_id, expiry_ms)
+            if new_uuid:
+                db.update_uuid(telegram_id, new_uuid)
+        else:
+            await xui_api.update_client_expiry(client_uuid, telegram_id, expiry_ms)
             
     await callback.message.edit_text(
         "🎁 <b>Вам выдан бесплатный тестовый период на 24 часа!</b>\n\n"

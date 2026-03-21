@@ -28,7 +28,7 @@ async def login(session):
             return False
 
 
-async def add_client(telegram_id: int):
+async def add_client(telegram_id: int, expiry_time_ms: int = 0):
     try:
         client_uuid = str(uuid.uuid4())
         email = f"tg_{telegram_id}"
@@ -47,7 +47,7 @@ async def add_client(telegram_id: int):
                 "email": email,
                 "limitIp": 2,
                 "totalGB": 0,
-                "expiryTime": 0,
+                "expiryTime": expiry_time_ms,
                 "enable": True,
                 "tgId": "",
                 "subId": client_uuid
@@ -126,6 +126,45 @@ async def disable_client(client_uuid: str, telegram_id: int):
         logger.error(f"Неожиданная ошибка в disable_client: {e}")
         return False
 
+async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_ms: int):
+    try:
+        async with aiohttp.ClientSession() as session:
+            is_logged = await login(session)
+            if not is_logged:
+                return False
+
+            url = f"{PANEL_URL}/panel/api/inbounds/updateClient/{client_uuid}"
+
+            client_data = {
+                "id": client_uuid,
+                "alterId": 0,
+                "email": f"tg_{telegram_id}",
+                "limitIp": 2,
+                "totalGB": 0,
+                "expiryTime": expiry_time_ms,
+                "enable": True,
+                "tgId": "",
+                "subId": client_uuid
+            }
+
+            payload = {
+                "id": INBOUND_ID,
+                "settings": json.dumps({"clients": [client_data]})
+            }
+
+            headers = {'Accept': 'application/json'}
+
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status != 200:
+                    return False
+                try:
+                    data = await resp.json()
+                    return data.get("success", False)
+                except Exception:
+                    return False
+    except Exception as e:
+        logger.error(f"Ошибка в update_client_expiry: {e}")
+        return False
 
 async def clear_client_ips(telegram_id: int):
     try:
