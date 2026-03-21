@@ -674,14 +674,17 @@ async def process_profile(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_devices")
 async def process_devices(callback: CallbackQuery):
+    telegram_id = callback.from_user.id
+    ips_count = await xui_api.get_client_ips(telegram_id)
     text = (
-        "📱 Устройства\n\n"
-        "Ваш тариф позволяет использовать до 2-х устройств одновременно.\n\n"
-        "Если VPN перестал подключаться (это бывает при частой смене Wi-Fi на мобильный интернет), "
-        "вероятно, сработала защита от превышения лимита.\n\n"
+        "📱 <b>Управление устройствами</b>\n\n"
+        "Ваш тариф позволяет использовать до <b>3-х устройств</b> одновременно.\n"
+        f"Подключено сейчас (IP): <b>{ips_count} / 3</b>\n\n"
+        "Если VPN перестал подключаться (например, при смене Wi-Fi на мобильный интернет), "
+        "вероятно, превышен лимит сессий.\n\n"
         "Нажмите кнопку ниже, чтобы сбросить зависшие сессии."
     )
-    await safe_edit(callback.message, text, reply_markup=get_devices_kb())
+    await safe_edit(callback.message, text, reply_markup=get_devices_kb(), parse_mode="HTML")
     await callback.answer()
 
 

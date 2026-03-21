@@ -45,7 +45,7 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0):
                 "id": client_uuid,
                 "alterId": 0,
                 "email": email,
-                "limitIp": 2,
+                "limitIp": 3,
                 "totalGB": 0,
                 "expiryTime": expiry_time_ms,
                 "enable": True,
@@ -165,6 +165,26 @@ async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_m
     except Exception as e:
         logger.error(f"Ошибка в update_client_expiry: {e}")
         return False
+
+async def get_client_ips(telegram_id: int):
+    try:
+        async with aiohttp.ClientSession() as session:
+            is_logged = await login(session)
+            if not is_logged:
+                return 0
+            email = f"tg_{telegram_id}"
+            url = f"{PANEL_URL}/panel/api/inbounds/clientIps/{email}"
+            async with session.post(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    obj = data.get("obj", "No IP Record")
+                    if obj == "No IP Record" or not obj:
+                        return 0
+                    return len(obj.strip().split('\n'))
+        return 0
+    except Exception as e:
+        logger.error(f"Ошибка в get_client_ips: {e}")
+        return 0
 
 async def clear_client_ips(telegram_id: int):
     try:
