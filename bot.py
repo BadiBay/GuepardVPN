@@ -107,7 +107,7 @@ def get_main_menu_kb(user_id: int | None = None):
         user_data = db.get_user(user_id)
         if user_data:
             balance, sub_end, client_uuid = user_data
-            sub_link = f"{xui_api.PANEL_URL}/sub/{client_uuid}" if client_uuid else 'None'
+            sub_link = f"https://sub.guepardvpn.top:1/s/{client_uuid}" if client_uuid else 'None'
             end_str = str(sub_end) if sub_end else 'None'
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
@@ -641,7 +641,7 @@ async def process_profile(callback: CallbackQuery):
             if client_uuid:
                 # В 3x-ui есть встроенный роутер для подписок.
                 # Ссылка на подписку обычно выглядит так:
-                sub_link = f"{xui_api.PANEL_URL}/sub/{client_uuid}"
+                sub_link = f"https://sub.guepardvpn.top:1/s/{client_uuid}"
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     text = (
