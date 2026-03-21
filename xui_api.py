@@ -45,7 +45,7 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0):
                 "id": client_uuid,
                 "alterId": 0,
                 "email": email,
-                "limitIp": 3,
+                "limitIp": 1,
                 "totalGB": 0,
                 "expiryTime": expiry_time_ms,
                 "enable": True,
