@@ -1,0 +1,45 @@
+name: Deploy VPN Bot
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy files to Server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "."
+          target: "/root/vpn_bot"
+          # By default, files are overwritten but existing files on the server (like .env and .db) won't be deleted.
+
+      - name: Docker Compose Up
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            # Устанавливаем Docker, если его нет
+            if ! command -v docker &> /dev/null; then
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sh get-docker.sh
+            fi
+            
+            cd /root/vpn_bot
+            
+            # Останавливаем старый контейнер и запускаем заново с новой сборкой
+            docker compose down || true
+            docker compose build
+            docker compose up -d

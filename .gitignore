@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+vpn_bot.db
+app.log
+.idea/
+cloudflared-windows-amd64.exe
+ngrok.exe
