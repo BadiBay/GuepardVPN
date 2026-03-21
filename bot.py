@@ -98,10 +98,28 @@ dp.callback_query.middleware(ThrottlingMiddleware())
 db.init_db()
 
 
-def get_main_menu_kb():
-    WEBAPP_URL = os.getenv("WEBAPP_URL", "https://example.com")
+from urllib.parse import urlencode
+
+def get_main_menu_kb(user_id: int | None = None):
+    WEBAPP_URL = os.getenv("WEBAPP_URL", "https://example.com").rstrip('/')
+    
+    if user_id:
+        user_data = db.get_user(user_id)
+        if user_data:
+            balance, sub_end, client_uuid = user_data
+            sub_link = f"{xui_api.PANEL_URL}/sub/{client_uuid}" if client_uuid else 'None'
+            end_str = str(sub_end) if sub_end else 'None'
+            
+            params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
+            qs = urlencode(params)
+            final_url = f"{WEBAPP_URL}/?{qs}"
+        else:
+            final_url = f"{WEBAPP_URL}/"
+    else:
+        final_url = f"{WEBAPP_URL}/"
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Открыть приложение (Mini App)", web_app=WebAppInfo(url=WEBAPP_URL))],
+        [InlineKeyboardButton(text="🚀 Открыть приложение (Mini App)", web_app=WebAppInfo(url=final_url))],
         [InlineKeyboardButton(text="🔑 Купить подписку", callback_data="menu_tariffs")],
         [
             InlineKeyboardButton(text="📱 Установить VPN", callback_data="menu_install"),
@@ -203,7 +221,7 @@ async def cmd_start(message: Message):
     await message.answer_video(
         video=video_url,
         caption=text,
-        reply_markup=get_main_menu_kb()
+        reply_markup=get_main_menu_kb(message.from_user.id)
     )
 # --- АДМИН ПАНЕЛЬ ---
 
@@ -407,7 +425,7 @@ async def safe_edit(message, text: str, reply_markup=None, parse_mode=None):
 @dp.callback_query(F.data == "menu_main")
 async def process_main_menu(callback: CallbackQuery):
     text = "Вы в главном меню. Выберите нужное действие:"
-    await safe_edit(callback.message, text, reply_markup=get_main_menu_kb())
+    await safe_edit(callback.message, text, reply_markup=get_main_menu_kb(callback.from_user.id))
     await callback.answer()
 
 
@@ -436,9 +454,39 @@ async def process_docs(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "stub_os")
+async def process_install_os(callback: CallbackQuery):
+    text = (
+        "📲 <b>Инструкция по установке:</b>\n\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b> или <b>Hiddify</b> из вашего магазина приложений (App Store / Google Play / Windows).\n"
+        "2. Скопируйте ваш уникальный ключ из Личного кабинета.\n"
+        "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
+        "4. Выберите «Импорт из буфера обмена».\n"
+        "5. Нажмите кнопку <b>Подключить</b>!\n\n"
+        "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_faq")
+async def process_faq(callback: CallbackQuery):
+    text = (
+        "❓ <b>Частые вопросы (FAQ)</b>\n\n"
+        "<b>1. Разрешены ли торренты?</b>\n"
+        "Нет, скачивание торрентов строго запрещено нашими серверами.\n\n"
+        "<b>2. На скольких устройствах я могу использовать VPN?</b>\n"
+        "Одновременно можно использовать до 2-х устройств на один ключ.\n\n"
+        "<b>3. VPN перестал подключаться, что делать?</b>\n"
+        "Зайдите в Личный кабинет -> Устройства и нажмите «Сбросить сессии», затем переподключитесь.\n\n"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_docs")]])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
 @dp.callback_query(F.data.startswith("stub_"))
 async def process_stub(callback: CallbackQuery):
-    await callback.answer("Эта функция пока в разработке 🚧", show_alert=True)
+    await callback.answer("Эта функция пока в разработке (подключение шлюза) 🚧", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("test_24h"))
@@ -462,7 +510,7 @@ async def process_test_24h(callback: CallbackQuery):
     await callback.message.edit_text(
         "🎁 <b>Вам выдан бесплатный тестовый период на 24 часа!</b>\n\n"
         "Перейдите в Личный кабинет, чтобы получить ключ.",
-        reply_markup=get_main_menu_kb(), parse_mode="HTML"
+        reply_markup=get_main_menu_kb(telegram_id), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -665,7 +713,7 @@ async def support_timeout(user_id: int, state: FSMContext):
             await bot.send_message(
                 chat_id=user_id,
                 text="⏳ Время ожидания истекло. Вы не отправили сообщение в течение 5 минут. Обращение закрыто.",
-                reply_markup=get_main_menu_kb()
+                reply_markup=get_main_menu_kb(user_id)
             )
         except:
             pass
@@ -714,7 +762,7 @@ async def process_support_close(callback: CallbackQuery, state: FSMContext):
         
     await callback.message.edit_text(
         "Обращение в поддержку отменено.",
-        reply_markup=get_main_menu_kb()
+        reply_markup=get_main_menu_kb(user_id)
     )
     await callback.answer()
 
@@ -755,7 +803,7 @@ async def process_support_message(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "✅ Ваш вопрос отправлен администратору. Ожидайте ответа, мы напишем вам сюда.",
-        reply_markup=get_main_menu_kb()
+        reply_markup=get_main_menu_kb(user_id)
     )
 
 
@@ -787,7 +835,7 @@ async def process_admin_close_ticket(callback: CallbackQuery):
         await bot.send_message(
             chat_id=target_user_id,
             text="🤝 Администратор закрыл ваше обращение. Если у вас появились новые вопросы, вы можете открыть новое обращение в меню поддержки.",
-            reply_markup=get_main_menu_kb()
+            reply_markup=get_main_menu_kb(target_user_id)
         )
     except:
         pass

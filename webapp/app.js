@@ -14,6 +14,43 @@ if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     }
 }
 
+// Parse URL Parameters passed from the Bot
+const params = new URLSearchParams(window.location.search);
+const pUuid = params.get('uuid');
+const pEnd = params.get('end');
+const pBal = params.get('bal');
+const pTid = params.get('tid');
+
+if (pTid) {
+    document.getElementById('ref-link').value = `https://t.me/guepard_vpn_bot?start=ref_${pTid}`;
+}
+
+const statusEl = document.getElementById('sub-status');
+const endEl = document.getElementById('sub-end');
+const keyEl = document.getElementById('vpn-key');
+
+if (pEnd && pEnd !== 'None') {
+    statusEl.innerHTML = '● Активна';
+    statusEl.style.color = 'var(--success)';
+    endEl.innerText = pEnd;
+} else {
+    statusEl.innerHTML = '❌ Неактивна';
+    statusEl.style.color = 'var(--error)';
+    endEl.innerText = '—';
+}
+
+if (pUuid && pUuid !== 'None') {
+    // We assume the bot passes the full vless link or we construct it.
+    // If bot passes uuid, we construct a dummy vless link or the bot passes the full link.
+    // Let's assume the bot passes the panel URL hostname.
+    const panelHost = "sub.guepardvpn.top:9684";
+    const pbk = "xxx"; // Needs Reality public key if we building VLESS. 
+    // It's better if bot passes a direct sub link
+    keyEl.value = pUuid; // the bot will pass the full sub link in the uuid param
+} else {
+    keyEl.value = 'Подписка не активна';
+}
+
 // Navigation Logic
 function navTo(viewId) {
     // Hide all views

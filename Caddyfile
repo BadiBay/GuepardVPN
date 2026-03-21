@@ -1,0 +1,4 @@
+app.guepardvpn.top {
+    root * /usr/share/caddy
+    file_server
+}

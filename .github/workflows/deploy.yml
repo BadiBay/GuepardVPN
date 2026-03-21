@@ -21,7 +21,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           source: "."
-          target: "/root/vpn_bot"
+          target: "/root/VPN"
           # By default, files are overwritten but existing files on the server (like .env and .db) won't be deleted.
 
       - name: Docker Compose Up
@@ -37,7 +37,7 @@ jobs:
               sh get-docker.sh
             fi
             
-            cd /root/vpn_bot
+            cd /root/VPN
             
             # Останавливаем старый контейнер и запускаем заново с новой сборкой
             docker compose down || true
