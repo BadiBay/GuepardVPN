@@ -132,27 +132,17 @@ def get_main_menu_kb(user_id: int | None = None):
     ])
 
 
-def get_profile_kb(callback=CallbackQuery):
-    global sub_link
-    user_data = db.get_user(callback.from_user.id)
-    sub_end_date_str = user_data[1] if user_data else None
-    client_uuid = user_data[2] if user_data else None
-
-    if sub_end_date_str:
-        sub_end_date = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
-        now = datetime.now()
-        if sub_end_date > now:
-            if client_uuid:
-                sub_link = client_uuid
-                if sub_link.startswith("/"):
-                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Подключить подписку", url=f"{sub_link}")],
+def get_profile_kb(sub_link: str | None = None):
+    keyboard = []
+    if sub_link:
+        keyboard.append([InlineKeyboardButton(text="🔗 Подключить подписку", url=sub_link)])
+    keyboard.extend([
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -728,7 +718,8 @@ async def process_profile(callback: CallbackQuery):
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
-    await safe_edit(callback.message, text, reply_markup=get_profile_kb(), parse_mode="HTML")
+    _sub_link = sub_link if 'sub_link' in locals() else None
+    await safe_edit(callback.message, text, reply_markup=get_profile_kb(_sub_link), parse_mode="HTML")
     await callback.answer()
 
 
