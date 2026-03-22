@@ -108,6 +108,8 @@ def get_main_menu_kb(user_id: int | None = None):
         if user_data:
             balance, sub_end, client_uuid = user_data
             sub_link = client_uuid if client_uuid else 'None'
+            if sub_link != 'None' and sub_link.startswith("/"):
+                sub_link = f"{panel_api.PANEL_URL}{sub_link}"
             end_str = str(sub_end) if sub_end else 'None'
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
@@ -654,6 +656,8 @@ async def process_profile(callback: CallbackQuery):
 
             if client_uuid:
                 sub_link = client_uuid
+                if sub_link.startswith("/"):
+                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     text = (
