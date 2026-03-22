@@ -204,6 +204,54 @@ def get_docs_kb():
     ])
 
 
+async def send_welcome_message(chat_id: int, user_id: int):
+    user_data = db.get_user(user_id)
+    is_active = False
+    if user_data and user_data[1]:
+        try:
+            sub_end_date = datetime.strptime(user_data[1], "%Y-%m-%d %H:%M:%S")
+            if sub_end_date > datetime.now():
+                is_active = True
+        except:
+            pass
+
+    bot_info = await bot.get_me()
+    support_url = f"https://t.me/{bot_info.username}?start=support"
+
+    if is_active:
+        text = (
+            "🔐 <b>Подписка активна — Вы под защитой GuepardVPN🐆</b>\n\n"
+            "Ваш трафик зашифрован, личные данные в безопасности. Подключайтесь в один клик — и пользуйтесь интернетом уверенно.\n\n"
+            "📱 До 3 устройств — один ключ.\n"
+            "🛠 Управление и инструкции — в личном кабинете.\n"
+            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>"
+        )
+    else:
+        text = (
+            "👋 Добро пожаловать в GuepardVPN🐆 — быстрый и стабильный сервис!\n\n"
+            "🔥 Получите 1 день бесплатно, чтобы всё протестировать.\n"
+            "⚡️ Затем выберите тариф и оформите подписку в пару кликов.\n"
+            "🔒 Ваши данные будут под надёжной защитой.\n\n"
+            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>\n\n"
+            "Как начать пользоваться:\n"
+            "1️⃣ Нажмите «Купить подписку»\n"
+            "2️⃣ Выберите тариф\n"
+            "3️⃣ Оплатите любым удобным способом\n"
+            "4️⃣ Перейдите в «Личный кабинет»\n"
+            "5️⃣ Подключайтесь и пользуйтесь безопасным интернетом\n\n"
+            "👇 Выберите действие из списка"
+        )
+
+    video_url = "BAACAgIAAxkBAAOOabr0LEVa_aU-Xbvnxs7oENdDelcAAjSXAALNodlJkD-ePULV8Fw6BA"
+
+    await bot.send_video(
+        chat_id=chat_id,
+        video=video_url,
+        caption=text,
+        reply_markup=get_main_menu_kb(user_id),
+        parse_mode="HTML"
+    )
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     referrer_id = None
@@ -233,55 +281,7 @@ async def cmd_start(message: Message, state: FSMContext):
                 return
 
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
-
-    user_data = db.get_user(message.from_user.id)
-    is_active = False
-    if user_data and user_data[1]:
-        try:
-            sub_end_date = datetime.strptime(user_data[1], "%Y-%m-%d %H:%M:%S")
-            if sub_end_date > datetime.now():
-                is_active = True
-        except:
-            pass
-
-    bot_info = await bot.get_me()
-    support_url = f"https://t.me/{bot_info.username}?start=support"
-
-    if is_active:
-        text = (
-            "🔐 <b>Подписка активна — Вы под защитой GuepardVPN</b>\n\n"
-            "Ваш трафик зашифрован, личные данные в безопасности. Подключайтесь в один клик — и пользуйтесь интернетом уверенно.\n\n"
-            "📱 До 3 устройств — один ключ.\n"
-            "🛠 Управление и инструкции — в личном кабинете.\n"
-            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>"
-        )
-    else:
-        text = (
-            "👋 Добро пожаловать в GuepardVPN🐆 — быстрый и стабильный сервис!\n\n"
-            "🔥 Получите 1 день бесплатно, чтобы всё протестировать.\n"
-            "⚡️ Затем выберите тариф и оформите подписку в пару кликов.\n"
-            "🔒 Ваши данные будут под надёжной защитой.\n\n"
-            
-            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>\n\n"
-            
-            "Как начать пользоваться:\n"
-            "1️⃣ Нажмите «Купить подписку»\n"
-            "2️⃣ Выберите тариф\n"
-            "3️⃣ Оплатите любым удобным способом\n"
-            "4️⃣ Перейдите в «Личный кабинет»\n"
-            "5️⃣ Подключайтесь и пользуйтесь безопасным интернетом\n\n"
-            "👇 Выберите действие из списка"
-        )
-
-    # Видео можно отправить по file_id, URL или загрузить файл с диска (FSInputFile)
-    video_url = "BAACAgIAAxkBAAOOabr0LEVa_aU-Xbvnxs7oENdDelcAAjSXAALNodlJkD-ePULV8Fw6BA"
-
-    await message.answer_video(
-        video=video_url,
-        caption=text,
-        reply_markup=get_main_menu_kb(message.from_user.id),
-        parse_mode="HTML"
-    )
+    await send_welcome_message(message.chat.id, message.from_user.id)
 # --- АДМИН ПАНЕЛЬ ---
 
 @dp.message(Command("admin"))
@@ -489,8 +489,11 @@ async def safe_edit(message, text: str, reply_markup=None, parse_mode=None):
 
 @dp.callback_query(F.data == "menu_main")
 async def process_main_menu(callback: CallbackQuery):
-    text = "Вы в главном меню. Выберите нужное действие:"
-    await safe_edit(callback.message, text, reply_markup=get_main_menu_kb(callback.from_user.id))
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await send_welcome_message(callback.message.chat.id, callback.from_user.id)
     await callback.answer()
 
 
