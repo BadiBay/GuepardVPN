@@ -47,6 +47,15 @@ def get_user(telegram_id: int):
     return result
 
 
+def get_username(telegram_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE telegram_id = ?", (telegram_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+
 
 def update_uuid(telegram_id: int, client_uuid: str):
     conn = sqlite3.connect(DB_NAME)

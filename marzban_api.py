@@ -2,6 +2,7 @@ import aiohttp
 import logging
 import os
 from dotenv import load_dotenv
+import database as db
 
 load_dotenv()
 
@@ -10,6 +11,14 @@ logger = logging.getLogger(__name__)
 PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000").rstrip('/')
 USERNAME = os.getenv("PANEL_USERNAME", "admin")
 PASSWORD = os.getenv("PANEL_PASSWORD", "admin")
+
+def get_m_username(telegram_id: int) -> str:
+    username = db.get_username(telegram_id)
+    if username and str(username).strip() != "None":
+        clean = "".join(c for c in username if c.isalnum() or c in ("-", "_"))
+        if clean:
+            return clean
+    return f"tg_{telegram_id}"
 
 
 async def get_token(session: aiohttp.ClientSession) -> str | None:
@@ -33,7 +42,8 @@ async def get_subscription_url(telegram_id: int) -> str | None:
             if not token:
                 return None
 
-            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            m_user = get_m_username(telegram_id)
+            url = f"{PANEL_URL}/api/user/{m_user}"
             headers = {"Authorization": f"Bearer {token}"}
 
             async with session.get(url, headers=headers) as resp:
@@ -61,9 +71,10 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
             }
             
             expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
+            m_user = get_m_username(telegram_id)
 
             payload = {
-                "username": f"tg_{telegram_id}",
+                "username": m_user,
                 "proxies": {"vless": {}},
                 "inbounds": {},
                 "expire": expire,
@@ -93,7 +104,8 @@ async def disable_client(client_uuid: str, telegram_id: int) -> bool:
             if not token:
                 return False
 
-            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            m_user = get_m_username(telegram_id)
+            url = f"{PANEL_URL}/api/user/{m_user}"
             headers = {"Authorization": f"Bearer {token}"}
             payload = {"status": "disabled"}
 
@@ -111,7 +123,8 @@ async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_m
             if not token:
                 return False
 
-            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            m_user = get_m_username(telegram_id)
+            url = f"{PANEL_URL}/api/user/{m_user}"
             headers = {"Authorization": f"Bearer {token}"}
             expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
             payload = {"expire": expire, "status": "active"}
@@ -135,7 +148,8 @@ async def clear_client_ips(telegram_id: int) -> str | None:
             if not token:
                 return None
 
-            url = f"{PANEL_URL}/api/user/tg_{telegram_id}/revoke_sub"
+            m_user = get_m_username(telegram_id)
+            url = f"{PANEL_URL}/api/user/{m_user}/revoke_sub"
             headers = {"Authorization": f"Bearer {token}"}
 
             async with session.post(url, headers=headers) as resp:
@@ -155,7 +169,8 @@ async def get_client_stats(telegram_id: int) -> float:
             if not token:
                 return 0.0
 
-            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            m_user = get_m_username(telegram_id)
+            url = f"{PANEL_URL}/api/user/{m_user}"
             headers = {"Authorization": f"Bearer {token}"}
 
             async with session.get(url, headers=headers) as resp:
