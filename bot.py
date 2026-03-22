@@ -132,9 +132,22 @@ def get_main_menu_kb(user_id: int | None = None):
     ])
 
 
-def get_profile_kb():
+def get_profile_kb(callback=CallbackQuery):
+    global sub_link
+    user_data = db.get_user(callback.from_user.id)
+    sub_end_date_str = user_data[1] if user_data else None
+    client_uuid = user_data[2] if user_data else None
+
+    if sub_end_date_str:
+        sub_end_date = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
+        now = datetime.now()
+        if sub_end_date > now:
+            if client_uuid:
+                sub_link = client_uuid
+                if sub_link.startswith("/"):
+                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Подключить подписку", callback_data="menu_install")],
+        [InlineKeyboardButton(text="🔗 Подключить подписку", url=f"{sub_link}")],
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
@@ -159,12 +172,12 @@ def get_devices_kb():
 def get_install_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🍏 iPhone (iOS)", callback_data="stub_os"),
-            InlineKeyboardButton(text="🤖 Android", callback_data="stub_os")
+            InlineKeyboardButton(text="🍏 iPhone (iOS)", callback_data="stub_os_ios"),
+            InlineKeyboardButton(text="🤖 Android", callback_data="stub_os_android")
         ],
         [
-            InlineKeyboardButton(text="💻 MacOS", callback_data="stub_os"),
-            InlineKeyboardButton(text="🪟 Windows", callback_data="stub_os")
+            InlineKeyboardButton(text="💻 MacOS", callback_data="stub_os_macos"),
+            InlineKeyboardButton(text="🪟 Windows", callback_data="stub_os_windows")
         ],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
@@ -213,7 +226,7 @@ async def cmd_start(message: Message):
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
 
     text = (
-        "👋 Добро пожаловать в GuepardVPN (Тестовая версия)!\n\n"
+        "👋 Добро пожаловать в GuepardVPN🐆!\n\n"
         "Ваш трафик зашифрован, личные данные в безопасности. "
         "Подключайтесь в один клик и пользуйтесь интернетом уверенно."
     )
@@ -463,11 +476,56 @@ async def process_docs(callback: CallbackQuery):
     await callback.answer()
 
 
-@dp.callback_query(F.data == "stub_os")
+@dp.callback_query(F.data == "stub_os_ios")
 async def process_install_os(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
-        "1. Скачайте приложение <b>V2Ray Tun</b> или <b>Hiddify</b> из вашего магазина приложений (App Store / Google Play / Windows).\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений App Store.\n"
+        "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
+        "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
+        "4. Выберите «Импорт из буфера обмена».\n"
+        "5. Нажмите кнопку <b>Подключить</b>!\n\n"
+        "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_os_android")
+async def process_install_os(callback: CallbackQuery):
+    text = (
+        "📲 <b>Инструкция по установке:</b>\n\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений Google Play.\n"
+        "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
+        "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
+        "4. Выберите «Импорт из буфера обмена».\n"
+        "5. Нажмите кнопку <b>Подключить</b>!\n\n"
+        "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_os_windows")
+async def process_install_os(callback: CallbackQuery):
+    text = (
+        "📲 <b>Инструкция по установке:</b>\n\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
+        "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
+        "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
+        "4. Выберите «Импорт из буфера обмена».\n"
+        "5. Нажмите кнопку <b>Подключить</b>!\n\n"
+        "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_os_macos")
+async def process_install_os(callback: CallbackQuery):
+    text = (
+        "📲 <b>Инструкция по установке:</b>\n\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из AppStore или браузера.\n"
         "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
@@ -485,7 +543,7 @@ async def process_faq(callback: CallbackQuery):
         "<b>1. Разрешены ли торренты?</b>\n"
         "Нет, скачивание торрентов строго запрещено нашими серверами.\n\n"
         "<b>2. На скольких устройствах я могу использовать VPN?</b>\n"
-        "Одновременно можно использовать до 2-х устройств на один ключ.\n\n"
+        "Одновременно можно использовать до 3-х устройств на один ключ.\n\n"
         "<b>3. VPN перестал подключаться, что делать?</b>\n"
         "Зайдите в Личный кабинет -> Устройства и нажмите «Сбросить сессии», затем переподключитесь.\n\n"
     )
