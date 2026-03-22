@@ -98,6 +98,15 @@ def get_expired_users():
     return result
 
 
+def get_active_users():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, sub_end_date FROM users WHERE is_active = 1 AND sub_end_date IS NOT NULL")
+    result = cursor.fetchall()
+    conn.close()
+    return result
+
+
 def set_inactive(telegram_id: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()

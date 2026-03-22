@@ -205,43 +205,82 @@ def get_docs_kb():
 
 
 @dp.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
     referrer_id = None
     if message.text:
         args = message.text.split()
-        if len(args) > 1 and args[1].startswith("ref_"):
-            try:
-                ref_id = int(args[1].split("_")[1])
-                if ref_id != message.from_user.id:
-                    referrer_id = ref_id
-            except ValueError:
-                pass
+        if len(args) > 1:
+            if args[1].startswith("ref_"):
+                try:
+                    ref_id = int(args[1].split("_")[1])
+                    if ref_id != message.from_user.id:
+                        referrer_id = ref_id
+                except ValueError:
+                    pass
+            elif args[1] == "support":
+                await state.set_state(SupportStates.waiting_for_message)
+                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Закрыть вопрос", callback_data="support_close")]])
+                await message.answer(
+                    "📝 <b>Служба поддержки</b>\n\nНапишите ваш вопрос одним сообщением.\nЕсли передумали, нажмите «Закрыть вопрос».\n\nУ вас есть 5 минут на отправку сообщения.",
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+                user_id = message.from_user.id
+                if user_id in support_timeouts:
+                    support_timeouts[user_id].cancel()
+                task = asyncio.create_task(support_timeout(user_id, state))
+                support_timeouts[user_id] = task
+                return
 
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
 
-    text = (
-        "👋 Добро пожаловать в GuepardVPN🐆 — быстрый и стабильный сервис!\n\n"
-        "🔥 Получите 1 день бесплатно, чтобы всё протестировать.\n"
-        "⚡️ Затем выберите тариф и оформите подписку в пару кликов.\n"
-        "🔒 Ваши данные будут под надёжной защитой.\n\n"
-        
-        "💬 Нужна помощь? Нажмите на кнопку 'Поддержка' ниже\n\n"
-        
-        "Как начать пользоваться:\n"
-        "1️⃣ Нажмите «Купить подписку»\n"
-        "2️⃣ Выберите тариф\n"
-        "3️⃣ Оплатите любым удобным способом\n"
-        "4️⃣ Перейдите в «Личный кабинет»\n"
-        "5️⃣ Подключайтесь и пользуйтесь безопасным интернетом\n\n"
-        "👇 Выберите действие из списка"
-    )
+    user_data = db.get_user(message.from_user.id)
+    is_active = False
+    if user_data and user_data[1]:
+        try:
+            sub_end_date = datetime.strptime(user_data[1], "%Y-%m-%d %H:%M:%S")
+            if sub_end_date > datetime.now():
+                is_active = True
+        except:
+            pass
+
+    bot_info = await bot.get_me()
+    support_url = f"https://t.me/{bot_info.username}?start=support"
+
+    if is_active:
+        text = (
+            "🔐 <b>Подписка активна — Вы под защитой GuepardVPN</b>\n\n"
+            "Ваш трафик зашифрован, личные данные в безопасности. Подключайтесь в один клик — и пользуйтесь интернетом уверенно.\n\n"
+            "📱 До 3 устройств — один ключ.\n"
+            "🛠 Управление и инструкции — в личном кабинете.\n"
+            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>"
+        )
+    else:
+        text = (
+            "👋 Добро пожаловать в GuepardVPN🐆 — быстрый и стабильный сервис!\n\n"
+            "🔥 Получите 1 день бесплатно, чтобы всё протестировать.\n"
+            "⚡️ Затем выберите тариф и оформите подписку в пару кликов.\n"
+            "🔒 Ваши данные будут под надёжной защитой.\n\n"
+            
+            f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>\n\n"
+            
+            "Как начать пользоваться:\n"
+            "1️⃣ Нажмите «Купить подписку»\n"
+            "2️⃣ Выберите тариф\n"
+            "3️⃣ Оплатите любым удобным способом\n"
+            "4️⃣ Перейдите в «Личный кабинет»\n"
+            "5️⃣ Подключайтесь и пользуйтесь безопасным интернетом\n\n"
+            "👇 Выберите действие из списка"
+        )
+
     # Видео можно отправить по file_id, URL или загрузить файл с диска (FSInputFile)
     video_url = "BAACAgIAAxkBAAOOabr0LEVa_aU-Xbvnxs7oENdDelcAAjSXAALNodlJkD-ePULV8Fw6BA"
 
     await message.answer_video(
         video=video_url,
         caption=text,
-        reply_markup=get_main_menu_kb(message.from_user.id)
+        reply_markup=get_main_menu_kb(message.from_user.id),
+        parse_mode="HTML"
     )
 # --- АДМИН ПАНЕЛЬ ---
 
@@ -396,7 +435,6 @@ async def process_search_user_input(message: Message, state: FSMContext):
     
     text = (
         f"👤 <b>Профиль пользователя {target_id}</b>\n\n"
-        f"Баланс: {balance} ₽\n"
         f"Дата окончания: {sub_end or 'Нет'}\n"
         f"UUID: <code>{client_uuid or 'Нет ключа'}</code>\n"
     )
@@ -721,7 +759,7 @@ async def process_profile(callback: CallbackQuery):
     client_uuid = user_data[2] if user_data else None
 
     status_text = "❌ Неактивна"
-    days_left = 0
+    time_left_str = "0 дн."
     key_text = "<i>(появится после оплаты)</i>"
     used_gb = 0.0
 
@@ -730,7 +768,15 @@ async def process_profile(callback: CallbackQuery):
         now = datetime.now()
         if sub_end_date > now:
             status_text = "✅ Активна"
-            days_left = (sub_end_date - now).days
+            time_diff = sub_end_date - now
+            d_left = time_diff.days
+            h_left = time_diff.seconds // 3600
+            
+            if d_left > 0:
+                time_left_str = f"{d_left} дн. {h_left} ч."
+            else:
+                time_left_str = f"{h_left} ч."
+                
             used_gb = await panel_api.get_client_stats(callback.from_user.id)
 
             if client_uuid:
@@ -741,10 +787,9 @@ async def process_profile(callback: CallbackQuery):
 
     text = (
         f"👤 <b>Личный кабинет</b>\n\n"
-        f"ID: <code>{callback.from_user.id}</code>\n"
-        f"Баланс: {balance} ₽\n\n"
+        f"ID: <code>{callback.from_user.id}</code>\n\n"
         f"Статус подписки: {status_text}\n"
-        f"Осталось дней: {days_left}\n"
+        f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
@@ -1051,6 +1096,48 @@ async def check_expired_subscriptions():
                 except Exception as e:
                     logger.error(f"Не удалось отправить уведомление {telegram_id}: {e}")
 
+async def check_expiring_soon():
+    active_users = db.get_active_users()
+    now = datetime.now()
+    from aiogram.types import FSInputFile
+    import os
+    
+    for user_id, sub_end_date_str in active_users:
+        sub_end = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
+        diff = sub_end - now
+        total_hours = diff.total_seconds() / 3600.0
+        
+        notify_text = ""
+        image_path = None
+        
+        if 71.0 < total_hours <= 72.0:
+            notify_text = "⏳ <b>Ваша подписка истекает через 3 дня.</b>"
+            image_path = "3 дня.png"
+        elif 47.0 < total_hours <= 48.0:
+            notify_text = "⏳ <b>Ваша подписка истекает через 2 дня.</b>"
+            image_path = "2 дня.png"
+        elif 23.0 < total_hours <= 24.0:
+            notify_text = "⏳ <b>Ваша подписка истекает через 1 день.</b>"
+            image_path = "1 день.png"
+        elif 2.0 < total_hours <= 3.0:
+            notify_text = "⚠️ <b>Внимание! Ваша подписка истекает всего через 3 часа.</b>"
+            image_path = "3 часа.png"
+            
+        if notify_text:
+            text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")]
+            ])
+            try:
+                if image_path and os.path.exists(image_path):
+                    photo = FSInputFile(image_path)
+                    await bot.send_photo(chat_id=user_id, photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
+                else:
+                    await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+            except Exception as e:
+                pass
+
+
 async def check_cryptopay_invoices():
     """Фоновая задача: проверка статуса счетов CryptoBot"""
     if not cryptopay:
@@ -1131,8 +1218,8 @@ async def main():
 
     # Настройка и запуск планировщика задач
     scheduler = AsyncIOScheduler(timezone='Europe/Moscow')
-    # Для теста можно поставить проверку каждую минуту: trigger='interval', minutes=1
     scheduler.add_job(check_expired_subscriptions, trigger='interval', hours=1)
+    scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
     scheduler.start()
 
