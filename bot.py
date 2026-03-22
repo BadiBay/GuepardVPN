@@ -29,7 +29,7 @@ import os
 from dotenv import load_dotenv
 
 import database as db
-import xui_api
+import marzban_api as panel_api
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -107,7 +107,7 @@ def get_main_menu_kb(user_id: int | None = None):
         user_data = db.get_user(user_id)
         if user_data:
             balance, sub_end, client_uuid = user_data
-            sub_link = f"https://sub.guepardvpn.top:1/s/{client_uuid}" if client_uuid else 'None'
+            sub_link = client_uuid if client_uuid else 'None'
             end_str = str(sub_end) if sub_end else 'None'
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
@@ -293,11 +293,11 @@ async def process_days_input(message: Message, state: FSMContext):
             expiry_ms = int(dt.timestamp() * 1000)
 
         if not client_uuid:
-            new_uuid = await xui_api.add_client(target_id, expiry_ms)
+            new_uuid = await panel_api.add_client(target_id, expiry_ms)
             if new_uuid:
                 db.update_uuid(target_id, new_uuid)
         else:
-            await xui_api.update_client_expiry(client_uuid, target_id, expiry_ms)
+            await panel_api.update_client_expiry(client_uuid, target_id, expiry_ms)
 
         await message.answer(f"✅ Успешно! Пользователю {target_id} выдано {days} дней подписки.")
 
@@ -402,7 +402,7 @@ async def process_admin_delete_user(callback: CallbackQuery):
         client_uuid = user_data[2]
         if client_uuid:
             # Отключаем клиента в панели (мы не удаляем полностью, а дизейблим для простоты)
-            await xui_api.disable_client(client_uuid, target_id)
+            await panel_api.disable_client(client_uuid, target_id)
             
         db.delete_user_data(target_id)
         
@@ -466,7 +466,7 @@ async def process_install_os(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение <b>V2Ray Tun</b> или <b>Hiddify</b> из вашего магазина приложений (App Store / Google Play / Windows).\n"
-        "2. Скопируйте ваш уникальный ключ из Личного кабинета.\n"
+        "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
         "5. Нажмите кнопку <b>Подключить</b>!\n\n"
@@ -515,11 +515,11 @@ async def process_test_24h(callback: CallbackQuery):
             expiry_ms = int(dt.timestamp() * 1000)
 
         if not client_uuid:
-            new_uuid = await xui_api.add_client(telegram_id, expiry_ms)
+            new_uuid = await panel_api.add_client(telegram_id, expiry_ms)
             if new_uuid:
                 db.update_uuid(telegram_id, new_uuid)
         else:
-            await xui_api.update_client_expiry(client_uuid, telegram_id, expiry_ms)
+            await panel_api.update_client_expiry(client_uuid, telegram_id, expiry_ms)
             
     await callback.message.edit_text(
         "🎁 <b>Вам выдан бесплатный тестовый период на 24 часа!</b>\n\n"
@@ -650,12 +650,10 @@ async def process_profile(callback: CallbackQuery):
         if sub_end_date > now:
             status_text = "✅ Активна"
             days_left = (sub_end_date - now).days
-            used_gb = await xui_api.get_client_stats(callback.from_user.id)
+            used_gb = await panel_api.get_client_stats(callback.from_user.id)
 
             if client_uuid:
-                # В 3x-ui есть встроенный роутер для подписок.
-                # Ссылка на подписку обычно выглядит так:
-                sub_link = f"https://sub.guepardvpn.top:1/s/{client_uuid}"
+                sub_link = client_uuid
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     text = (
@@ -675,14 +673,12 @@ async def process_profile(callback: CallbackQuery):
 @dp.callback_query(F.data == "menu_devices")
 async def process_devices(callback: CallbackQuery):
     telegram_id = callback.from_user.id
-    ips_count = await xui_api.get_client_ips(telegram_id)
     text = (
         "📱 <b>Управление устройствами</b>\n\n"
-        "Ваш тариф позволяет использовать до <b>3-х устройств</b> одновременно.\n"
-        f"Подключено сейчас (IP): <b>{ips_count} / 3</b>\n\n"
+        "Вы можете использовать VPN на нескольких устройствах.\n\n"
         "Если VPN перестал подключаться (например, при смене Wi-Fi на мобильный интернет), "
-        "вероятно, превышен лимит сессий.\n\n"
-        "Нажмите кнопку ниже, чтобы сбросить зависшие сессии."
+        "вероятно, ваша сессия зависла.\n\n"
+        "Нажмите кнопку ниже, чтобы сбросить сессии (ваша ссылка на подписку обновится)."
     )
     await safe_edit(callback.message, text, reply_markup=get_devices_kb(), parse_mode="HTML")
     await callback.answer()
@@ -692,11 +688,12 @@ async def process_devices(callback: CallbackQuery):
 async def process_reset_ips(callback: CallbackQuery):
     telegram_id = callback.from_user.id
 
-    # Отправляем запрос к панели на очистку IP
-    success = await xui_api.clear_client_ips(telegram_id)
+    new_sub_url = await panel_api.clear_client_ips(telegram_id)
 
-    if success:
-        await callback.answer("✅ Сессии успешно сброшены! Попробуйте подключиться заново.", show_alert=True)
+    if new_sub_url:
+        db.update_uuid(telegram_id, new_sub_url)
+        await callback.message.edit_text("✅ Сессии сброшены! Перейдите в кабинет, чтобы скопировать новую ссылку.", reply_markup=get_devices_kb())
+        await callback.answer("✅ Сессии успешно сброшены!", show_alert=True)
     else:
         await callback.answer("❌ Ошибка сброса. Возможно, у вас нет активной подписки.", show_alert=True)
 
@@ -933,7 +930,7 @@ async def process_successful_payment(message: Message):
 
     # Если ключа еще нет, создаем его в панели
     if not client_uuid:
-        new_uuid = await xui_api.add_client(telegram_id)
+        new_uuid = await panel_api.add_client(telegram_id)
         if new_uuid:
             db.update_uuid(telegram_id, new_uuid)
 
@@ -953,8 +950,8 @@ async def check_expired_subscriptions():
         telegram_id, client_uuid = user
 
         if client_uuid:
-            # Отключаем клиента в панели 3X-UI
-            success = await xui_api.disable_client(client_uuid, telegram_id)
+            # Отключаем клиента в панели Marzban
+            success = await panel_api.disable_client(client_uuid, telegram_id)
             if success:
                 # Отмечаем неактивным в локальной БД
                 db.set_inactive(telegram_id)
@@ -1016,7 +1013,7 @@ async def check_cryptopay_invoices():
                     user_data = db.get_user(user_id)
                     client_uuid = user_data[2] if user_data else None
                     if not client_uuid:
-                        new_uuid = await xui_api.add_client(user_id)
+                        new_uuid = await panel_api.add_client(user_id)
                         if new_uuid:
                             db.update_uuid(user_id, new_uuid)
 

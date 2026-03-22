@@ -1,0 +1,169 @@
+import aiohttp
+import logging
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000").rstrip('/')
+USERNAME = os.getenv("PANEL_USERNAME", "admin")
+PASSWORD = os.getenv("PANEL_PASSWORD", "admin")
+
+
+async def get_token(session: aiohttp.ClientSession) -> str | None:
+    url = f"{PANEL_URL}/api/admin/token"
+    data = {"username": USERNAME, "password": PASSWORD}
+    try:
+        async with session.post(url, data=data) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                return result.get("access_token")
+            return None
+    except Exception as e:
+        logger.error(f"Error getting Marzban token: {e}")
+        return None
+
+
+async def get_subscription_url(telegram_id: int) -> str | None:
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                return None
+
+            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            headers = {"Authorization": f"Bearer {token}"}
+
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("subscription_url")
+                return None
+    except Exception as e:
+        logger.error(f"Error getting sub link: {e}")
+        return None
+
+
+async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                logger.warning("Marzban auth failed")
+                return None
+
+            url = f"{PANEL_URL}/api/user"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json"
+            }
+            
+            expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
+
+            payload = {
+                "username": f"tg_{telegram_id}",
+                "proxies": {"vless": {}},
+                "inbounds": {},
+                "expire": expire,
+                "data_limit": 0,
+                "data_limit_reset_strategy": "no_reset",
+                "status": "active"
+            }
+
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status in (200, 201):
+                    data = await resp.json()
+                    return data.get("subscription_url")
+                elif resp.status == 409: # Already exists
+                    return await get_subscription_url(telegram_id)
+                else:
+                    logger.error(f"API Error add_client {resp.status}: {await resp.text()}")
+                    return None
+    except Exception as e:
+        logger.error(f"Unexpected error in add_client: {e}")
+        return None
+
+
+async def disable_client(client_uuid: str, telegram_id: int) -> bool:
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                return False
+
+            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            headers = {"Authorization": f"Bearer {token}"}
+            payload = {"status": "disabled"}
+
+            async with session.put(url, json=payload, headers=headers) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.error(f"Unexpected error in disable_client: {e}")
+        return False
+
+
+async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_ms: int) -> bool:
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                return False
+
+            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            headers = {"Authorization": f"Bearer {token}"}
+            expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
+            payload = {"expire": expire, "status": "active"}
+
+            async with session.put(url, json=payload, headers=headers) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.error(f"Error in update_client_expiry: {e}")
+        return False
+
+
+async def get_client_ips(telegram_id: int) -> int:
+    return 0
+
+
+async def clear_client_ips(telegram_id: int) -> str | None:
+    # Возвращает новую ссылку на подписку
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                return None
+
+            url = f"{PANEL_URL}/api/user/tg_{telegram_id}/revoke_sub"
+            headers = {"Authorization": f"Bearer {token}"}
+
+            async with session.post(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("subscription_url")
+                return None
+    except Exception as e:
+        logger.error(f"Error in clear_client_ips: {e}")
+        return None
+
+
+async def get_client_stats(telegram_id: int) -> float:
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await get_token(session)
+            if not token:
+                return 0.0
+
+            url = f"{PANEL_URL}/api/user/tg_{telegram_id}"
+            headers = {"Authorization": f"Bearer {token}"}
+
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    used_bytes = data.get("used_traffic", 0)
+                    return round(used_bytes / (1024 ** 3), 2)
+                return 0.0
+    except Exception as e:
+        logger.error(f"Error in get_client_stats: {e}")
+        return 0.0
