@@ -135,7 +135,11 @@ def get_main_menu_kb(user_id: int | None = None):
 def get_profile_kb(sub_link: str | None = None):
     keyboard = []
     if sub_link:
-        keyboard.append([InlineKeyboardButton(text="🔗 Подключить подписку", url=sub_link)])
+        keyboard.append([InlineKeyboardButton(text="🔗 Страница вашей подписки", url=sub_link)])
+        keyboard.append([
+            InlineKeyboardButton(text="🦊 Импорт в v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={sub_link}"),
+            InlineKeyboardButton(text="🐰 Импорт в Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={sub_link}")
+        ])
     keyboard.extend([
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
@@ -467,7 +471,7 @@ async def process_docs(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "stub_os_ios")
-async def process_install_os(callback: CallbackQuery):
+async def process_install_os_ios(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений App Store.\n"
@@ -477,12 +481,16 @@ async def process_install_os(callback: CallbackQuery):
         "5. Нажмите кнопку <b>Подключить</b>!\n\n"
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://apps.apple.com/ru/app/v2raytun/id6476628951")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "stub_os_android")
-async def process_install_os(callback: CallbackQuery):
+async def process_install_os_android(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений Google Play.\n"
@@ -492,12 +500,16 @@ async def process_install_os(callback: CallbackQuery):
         "5. Нажмите кнопку <b>Подключить</b>!\n\n"
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru&pli=1")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://play.google.com/store/apps/details?id=com.happproxy&hl=ru")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "stub_os_windows")
-async def process_install_os(callback: CallbackQuery):
+async def process_install_os_windows(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
@@ -507,12 +519,16 @@ async def process_install_os(callback: CallbackQuery):
         "5. Нажмите кнопку <b>Подключить</b>!\n\n"
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://v2tun.ru/#download")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://www.happ.su/main")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "stub_os_macos")
-async def process_install_os(callback: CallbackQuery):
+async def process_install_os_macos(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из AppStore или браузера.\n"
@@ -522,7 +538,11 @@ async def process_install_os(callback: CallbackQuery):
         "5. Нажмите кнопку <b>Подключить</b>!\n\n"
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://apps.apple.com/ru/app/v2raytun/id6476628951?platform=mac")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973?platform=mac")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 

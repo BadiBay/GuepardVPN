@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Добавление подписки...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            background-color: #111;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: #222;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        h2 { color: #4CAF50; }
+        p { font-size: 16px; line-height: 1.5; color: #ccc; }
+        .spinner {
+            margin: 20px auto;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #4CAF50;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Открываем приложение...</h2>
+        <div class="spinner"></div>
+        <p>Если приложение не открылось автоматически, нажмите кнопку ниже:</p>
+        <a href="#" id="manual-btn" class="btn">Открыть вручную</a>
+    </div>
+
+    <script>
+        // Получаем параметры из URL (?app=...&url=...)
+        const params = new URLSearchParams(window.location.search);
+        const appScheme = params.get('app'); // например: v2raytun или happ
+        const subUrl = params.get('url');    // ваша подписка
+
+        if (appScheme && subUrl) {
+            // Формируем глубокую ссылку (Deep Link)
+            const deepLink = `${appScheme}://import/${subUrl}`;
+            
+            // Прописываем ссылку в кнопку на случай проблем с авто-открытием
+            document.getElementById('manual-btn').href = deepLink;
+            
+            // Пытаемся автоматически открыть приложение
+            setTimeout(() => {
+                window.location.href = deepLink;
+            }, 500);
+        } else {
+            document.querySelector('.container').innerHTML = "<h3>❌ Ошибка ссылки</h3><p>Неверные параметры. Вернитесь в бота и нажмите кнопку заново.</p>";
+        }
+    </script>
+</body>
+</html>
