@@ -177,14 +177,18 @@ def get_install_kb():
     ])
 
 
-def get_tariffs_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Бесплатный тест (24 часа)", callback_data="test_24h")],
+def get_tariffs_kb(telegram_id: int):
+    keyboard = []
+    if not db.has_ever_subscribed(telegram_id):
+        keyboard.append([InlineKeyboardButton(text="🎁 Бесплатный тест (24 часа)", callback_data="test_24h")])
+        
+    keyboard.extend([
         [InlineKeyboardButton(text="1 месяц", callback_data="select_tariff_30")],
         [InlineKeyboardButton(text="🔥 3 месяца (Выгода 11%)", callback_data="select_tariff_90")],
         [InlineKeyboardButton(text="12 месяцев (Выгода 27%)", callback_data="select_tariff_365")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_payment_method_kb(days: int):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -511,7 +515,7 @@ async def process_install(callback: CallbackQuery):
 @dp.callback_query(F.data == "menu_tariffs")
 async def process_tariffs(callback: CallbackQuery):
     text = "💎 <b>Выберите подходящий тариф:</b>\n\nЧем дольше период, тем выгоднее цена."
-    await safe_edit(callback.message, text, reply_markup=get_tariffs_kb(), parse_mode="HTML")
+    await safe_edit(callback.message, text, reply_markup=get_tariffs_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
 
 
@@ -1092,10 +1096,22 @@ async def check_expired_subscriptions():
                 try:
                     text = (
                         "⚠️ <b>Ваша подписка истекла!</b>\n\n"
-                        "Доступ к VPN приостановлен. Пополните баланс и продлите тариф в Личном кабинете, "
+                        "Доступ к VPN приостановлен. Оплатите тариф, "
                         "чтобы снова пользоваться сервисом."
                     )
-                    await bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+                    from aiogram.types import FSInputFile
+                    import os
+                    image_path = "Подписка истекла.png"
+                    
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")]
+                    ])
+                    
+                    if os.path.exists(image_path):
+                        photo = FSInputFile(image_path)
+                        await bot.send_photo(chat_id=telegram_id, photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
+                    else:
+                        await bot.send_message(chat_id=telegram_id, text=text, reply_markup=kb, parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"Не удалось отправить уведомление {telegram_id}: {e}")
 
