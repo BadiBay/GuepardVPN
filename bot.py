@@ -700,7 +700,7 @@ async def process_buy_yoomoney(callback: CallbackQuery):
 
     days = int(callback.data.split("_")[2])
     prices_map = {
-        30: 99,
+        30: 10,
         90: 249,
         365: 899
     }
