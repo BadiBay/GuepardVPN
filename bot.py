@@ -126,9 +126,8 @@ db.init_db()
 
 from urllib.parse import urlencode
 
-def get_main_menu_kb(user_id: int | None = None):
+def get_webapp_url(user_id: int | None = None) -> str:
     WEBAPP_URL = os.getenv("WEBAPP_URL", "https://example.com").rstrip('/')
-    
     if user_id:
         user_data = db.get_user(user_id)
         if user_data:
@@ -140,11 +139,11 @@ def get_main_menu_kb(user_id: int | None = None):
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
             qs = urlencode(params)
-            final_url = f"{WEBAPP_URL}/?{qs}"
-        else:
-            final_url = f"{WEBAPP_URL}/"
-    else:
-        final_url = f"{WEBAPP_URL}/"
+            return f"{WEBAPP_URL}/?{qs}"
+    return f"{WEBAPP_URL}/"
+
+def get_main_menu_kb(user_id: int | None = None):
+    final_url = get_webapp_url(user_id)
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Открыть приложение (Mini App)", web_app=WebAppInfo(url=final_url))],
@@ -229,8 +228,8 @@ def get_payment_method_kb(days: int):
 
 def get_docs_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Политика обработки данных ↗️", url="https://example.com/policy")],
-        [InlineKeyboardButton(text="Публичная оферта ↗️", url="https://example.com/oferta")],
+        [InlineKeyboardButton(text="Политика обработки данных ↗️", url="https://guepardvpn.top/policy.html")],
+        [InlineKeyboardButton(text="Публичная оферта ↗️", url="https://guepardvpn.top/oferta.html")],
         [InlineKeyboardButton(text="❓ FAQ", callback_data="stub_faq")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
@@ -302,6 +301,14 @@ async def send_welcome_message(chat_id: int, user_id: int):
 
     video_url = "BAACAgIAAxkBAAOOabr0LEVa_aU-Xbvnxs7oENdDelcAAjSXAALNodlJkD-ePULV8Fw6BA"
 
+    try:
+        await bot.set_chat_menu_button(
+            chat_id=chat_id,
+            menu_button=MenuButtonWebApp(text="GuepardVPN", web_app=WebAppInfo(url=get_webapp_url(user_id)))
+        )
+    except Exception as e:
+        logger.error(f"Failed to set menu button: {e}")
+
     await bot.send_video(
         chat_id=chat_id,
         video=video_url,
@@ -323,6 +330,64 @@ async def cmd_start(message: Message, state: FSMContext):
                         referrer_id = ref_id
                 except ValueError:
                     pass
+            elif args[1].startswith("buy_"):
+                parts = args[1].split("_")
+                if len(parts) >= 3:
+                    method = parts[1]
+                    days = int(parts[2])
+                    
+                    if method == "stars":
+                        prices_map = {30: 55, 90: 139, 365: 495}
+                        price = prices_map.get(days, 55)
+                        await bot.send_invoice(
+                            chat_id=message.chat.id,
+                            title=f"Подписка GuepardVPN на {days} дней",
+                            description="Безлимитный трафик, высокая скорость и надежная защита ваших данных.",
+                            payload=f"vpn_sub_{days}",
+                            provider_token="",
+                            currency="XTR",
+                            prices=[LabeledPrice(label="VPN Подписка", amount=price)]
+                        )
+                        return
+                        
+                    elif method == "yoomoney":
+                        if not YOOMONEY_TOKEN or not YOOMONEY_WALLET:
+                            await message.answer("Оплата ЮMoney временно недоступна.")
+                            return
+                        prices_map = {30: 10, 90: 249, 365: 899}
+                        price = prices_map.get(days, 0)
+                        if price:
+                            try:
+                                from yoomoney import Quickpay
+                                quickpay = Quickpay(
+                                    receiver=YOOMONEY_WALLET, quickpay_form="shop", targets=f"Подписка GuepardVPN на {days} дней",
+                                    paymentType="SB", sum=price, label=f"vpn_{message.from_user.id}_{days}"
+                                )
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="💳 Оплатить (ЮMoney)", url=quickpay.redirected_url)]
+                                ])
+                                await message.answer(f"🧾 <b>Счет на оплату ЮMoney</b>\n\nТариф: <b>{days} дней</b>\nСумма: <b>{price} руб</b>\nНажмите кнопку ниже для безопасной оплаты.", reply_markup=kb, parse_mode="HTML")
+                            except Exception as e:
+                                logger.error(f"YooMoney error in start link: {e}")
+                                await message.answer("Ошибка создания платежа.")
+                        return
+                        
+                    elif method == "crypto":
+                        if not cryptopay:
+                            await message.answer("Оплата криптовалютой временно недоступна.")
+                            return
+                        prices = {30: 99, 90: 249, 365: 899}
+                        price_rub = prices.get(days, 0)
+                        if price_rub:
+                            try:
+                                price_usdt = round(price_rub / 80.0, 2)
+                                invoice = await cryptopay.create_invoice(asset="USDT", amount=price_usdt, payload=f"vpn_{message.from_user.id}_{days}")
+                                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🪙 Оплатить (CryptoBot)", url=invoice.bot_invoice_url)]])
+                                await message.answer(f"🧾 <b>Счет CryptoBot</b>\n\nТариф: <b>{days} дней</b>\nСумма: <b>{price_usdt} USDT</b>", reply_markup=kb, parse_mode="HTML")
+                            except Exception as e:
+                                logger.error(f"CryptoPay error in start link: {e}")
+                                await message.answer("Ошибка создания платежа CryptoPay.")
+                        return
             elif args[1] == "support":
                 await state.set_state(SupportStates.waiting_for_message)
                 kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Закрыть вопрос", callback_data="support_close")]])
@@ -383,7 +448,7 @@ async def process_user_id_input(message: Message, state: FSMContext):
     
     if text.isdigit():
         target_id = int(text)
-    elif text.startswith("@") or text.isalnum():
+    else:
         username = text.lstrip("@")
         found_id_by_username = db.get_user_by_username(username)
         if found_id_by_username:
@@ -550,7 +615,7 @@ async def process_search_user_input(message: Message, state: FSMContext):
     
     if text.isdigit():
         target_id = int(text)
-    elif text.startswith("@") or text.isalnum():
+    else:
         username = text.lstrip("@")
         found_id_by_username = db.get_user_by_username(username)
         if found_id_by_username:
@@ -833,7 +898,7 @@ async def process_gift_recipient(message: Message, state: FSMContext):
     target_id = None
     if text.isdigit():
         target_id = int(text)
-    elif text.startswith("@") or text.isalnum():
+    else:
         username = text.lstrip("@")
         found_id = db.get_user_by_username(username)
         if found_id:

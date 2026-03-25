@@ -69,7 +69,7 @@ def get_user_by_username(username: str):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     clean_username = username.lstrip('@')
-    cursor.execute("SELECT telegram_id FROM users WHERE username = ?", (clean_username,))
+    cursor.execute("SELECT telegram_id FROM users WHERE LOWER(username) = LOWER(?)", (clean_username,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None

@@ -55,36 +55,24 @@
         <h2 class="text-center mb-24">Выберите<br>подходящий тариф</h2>
 
         <div class="tariffs-grid">
+            <div class="tariff-card" onclick="openPayment(30)">
+                <div class="tariff-title text-text-main">1 месяц</div>
+                <div class="tariff-savings">Базовый</div>
+                <div class="tariff-price">99 ₽</div>
+                <div class="tariff-daily">~3.3 ₽ в день</div>
+            </div>
             <div class="tariff-card" onclick="openPayment(90)">
                 <div class="tariff-badge">🔥 Хит продаж</div>
                 <div class="tariff-title">3 месяца</div>
-                <div class="tariff-savings">Экономия 12%</div>
-                <div class="tariff-price">690 ₽</div>
-                <div class="tariff-daily">~7.6 ₽ в день</div>
-            </div>
-            <div class="tariff-card" onclick="openPayment(10)">
-                <div class="tariff-title text-text-main">10 дней</div>
-                <div class="tariff-savings">Экономия 0%</div>
-                <div class="tariff-price">149 ₽</div>
-                <div class="tariff-daily">~14.9 ₽ в день</div>
-            </div>
-            <div class="tariff-card" onclick="openPayment(30)">
-                <div class="tariff-title text-text-main">1 месяц</div>
-                <div class="tariff-savings">Экономия 0%</div>
-                <div class="tariff-price">299 ₽</div>
-                <div class="tariff-daily">~9.9 ₽ в день</div>
-            </div>
-            <div class="tariff-card" onclick="openPayment(180)">
-                <div class="tariff-title text-text-main">6 месяцев</div>
-                <div class="tariff-savings">Экономия 23%</div>
-                <div class="tariff-price">1290 ₽</div>
-                <div class="tariff-daily">~7.1 ₽ в день</div>
+                <div class="tariff-savings">Скидка 16%</div>
+                <div class="tariff-price">249 ₽</div>
+                <div class="tariff-daily">~2.7 ₽ в день</div>
             </div>
             <div class="tariff-card" onclick="openPayment(365)" style="grid-column: span 2;">
                 <div class="tariff-title text-text-main">12 месяцев</div>
-                <div class="tariff-savings">Экономия 26%</div>
-                <div class="tariff-price">2190 ₽</div>
-                <div class="tariff-daily">~6.0 ₽ в день</div>
+                <div class="tariff-savings">Скидка 24%</div>
+                <div class="tariff-price">899 ₽</div>
+                <div class="tariff-daily">~2.4 ₽ в день</div>
             </div>
         </div>
     </div>
@@ -230,7 +218,7 @@
         </div>
 
         <div class="sheet-footer-text">
-            Оплачивая сервис, вы подтверждаете согласие с Публичной офертой, Пользовательским соглашением и Политикой возвратов.
+            Оплачивая сервис, вы подтверждаете согласие с <a href="#" onclick="Telegram.WebApp.openLink('https://guepardvpn.top/oferta.html'); return false;" style="color: var(--accent-color, #0a84ff); text-decoration: none;">Публичной офертой</a> и <a href="#" onclick="Telegram.WebApp.openLink('https://guepardvpn.top/policy.html'); return false;" style="color: var(--accent-color, #0a84ff); text-decoration: none;">Политикой обработки данных</a>.
         </div>
     </div>
 </div>

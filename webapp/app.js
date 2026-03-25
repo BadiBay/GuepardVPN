@@ -96,21 +96,10 @@ function closePayment() {
 }
 
 function processPayment(method) {
-    // Send data back to the bot
-    const data = JSON.stringify({
-        action: 'buy',
-        days: selectedDays,
-        method: method
-    });
-    
-    // Close modal
-    closePayment();
-    
-    // Notify bot
-    tg.sendData(data);
-    
-    // Or close app entirely
-    // tg.close();
+    const payload = `buy_${method}_${selectedDays}`;
+    const botRawUrl = "https://t.me/guepard_vpn_bot";
+    tg.openTelegramLink(`${botRawUrl}?start=${payload}`);
+    tg.close();
 }
 
 // Utility
