@@ -1230,9 +1230,12 @@ async def check_yoomoney_invoices():
         
     try:
         # Получаем историю успешных входящих переводов
-        history = yoomoney_client.operation_history(type="deposition", status="success")
+        history = yoomoney_client.operation_history(type="deposition")
         
         for operation in history.operations:
+            if operation.status != "success":
+                continue
+                
             label = operation.label
             if label and label.startswith("vpn_"):
                 parts = label.split("_")
@@ -1241,6 +1244,13 @@ async def check_yoomoney_invoices():
                     days = int(parts[2])
                     
                     if db.is_payment_processed(operation.operation_id):
+                        continue
+                        
+                    # Базовая проверка суммы (с учетом комиссии)
+                    prices_map = {30: 10, 90: 249, 365: 899} # 30 - 10 rub test
+                    expected_price = prices_map.get(days, 0)
+                    if expected_price > 0 and operation.amount < expected_price * 0.95:
+                        logger.warning(f"Недостаточная сумма от {user_id}: {operation.amount} руб")
                         continue
                         
                     logger.info(f"Найден оплаченный счет YooMoney: {operation.amount} руб от пользователя {user_id}")
