@@ -16,6 +16,11 @@ def init_db():
             is_active INTEGER DEFAULT 0
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS processed_payments (
+            operation_id TEXT PRIMARY KEY
+        )
+    ''')
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER DEFAULT NULL")
     except sqlite3.OperationalError:
@@ -171,5 +176,20 @@ def delete_user_data(telegram_id: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET sub_end_date = NULL, uuid = NULL, is_active = 0 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def is_payment_processed(operation_id: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM processed_payments WHERE operation_id = ?", (str(operation_id),))
+    result = cursor.fetchone()
+    conn.close()
+    return bool(result)
+
+def mark_payment_processed(operation_id: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO processed_payments (operation_id) VALUES (?)", (str(operation_id),))
     conn.commit()
     conn.close()

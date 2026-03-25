@@ -36,11 +36,25 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CRYPTOPAY_TOKEN = os.getenv("CRYPTOPAY_TOKEN")
+YOOMONEY_TOKEN = os.getenv("YOOMONEY_TOKEN")
+YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET")
 admin_ids_str = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
 
 # Инициализация CryptoPay
 cryptopay = None
+
+yoomoney_client = None
+if YOOMONEY_TOKEN:
+    try:
+        from yoomoney import Client, Quickpay
+        yoomoney_client = Client(YOOMONEY_TOKEN)
+        if not YOOMONEY_WALLET:
+            user_info = yoomoney_client.account_info()
+            YOOMONEY_WALLET = user_info.account
+            logger.info(f"YooMoney wallet loaded: {YOOMONEY_WALLET}")
+    except Exception as e:
+        logger.error(f"YooMoney init error: {e}")
 
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
@@ -184,15 +198,15 @@ def get_tariffs_kb(telegram_id: int):
         
     keyboard.extend([
         [InlineKeyboardButton(text="1 месяц", callback_data="select_tariff_30")],
-        [InlineKeyboardButton(text="🔥 3 месяца (Выгода 11%)", callback_data="select_tariff_90")],
-        [InlineKeyboardButton(text="12 месяцев (Выгода 27%)", callback_data="select_tariff_365")],
+        [InlineKeyboardButton(text="🔥 3 месяца (Выгода 20%)", callback_data="select_tariff_90")],
+        [InlineKeyboardButton(text="12 месяцев (Выгода 33%)", callback_data="select_tariff_365")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_payment_method_kb(days: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Карта России (Ожидается)", callback_data="stub_card")],
+        [InlineKeyboardButton(text="💳 Оплата картой (ЮMoney)", callback_data=f"buy_yoomoney_{days}")],
         [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data=f"buy_stars_{days}")],
         [InlineKeyboardButton(text="🪙 Криптовалюта", callback_data=f"buy_crypto_{days}")],
         [InlineKeyboardButton(text="🔙 Назад к тарифами", callback_data="menu_tariffs")]
@@ -660,9 +674,9 @@ async def process_select_tariff(callback: CallbackQuery):
     days = int(callback.data.split("_")[2])
     
     prices = {
-        30: 299,
-        90: 690,
-        365: 2190
+        30: 99,
+        90: 249,
+        365: 899
     }
     price = prices.get(days, 0)
     
@@ -677,6 +691,58 @@ async def process_select_tariff(callback: CallbackQuery):
     await callback.answer()
 
 
+# Обработка нажатия на тариф YooMoney
+@dp.callback_query(F.data.startswith("buy_yoomoney_"))
+async def process_buy_yoomoney(callback: CallbackQuery):
+    if not YOOMONEY_TOKEN or not YOOMONEY_WALLET:
+        await callback.answer("Оплата ЮMoney временно недоступна. Пожалуйста, обратитесь к администратору.", show_alert=True)
+        return
+
+    days = int(callback.data.split("_")[2])
+    prices_map = {
+        30: 99,
+        90: 249,
+        365: 899
+    }
+    price = prices_map.get(days, 0)
+    
+    if not price:
+        await callback.answer("Ошибка тарифа.", show_alert=True)
+        return
+
+    label = f"vpn_{callback.from_user.id}_{days}"
+    
+    # Generate Quickpay URL
+    try:
+        from yoomoney import Quickpay
+        quickpay = Quickpay(
+            receiver=YOOMONEY_WALLET,
+            quickpay_form="shop",
+            targets=f"Подписка GuepardVPN на {days} дней",
+            paymentType="SB",
+            sum=price,
+            label=label
+        )
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Оплатить (ЮMoney)", url=quickpay.redirected_url)],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_tariffs")]
+        ])
+        
+        await callback.message.edit_text(
+            f"🧾 <b>Счет на оплату ЮMoney (Банковская карта / Кошелек)</b>\n\n"
+            f"Тариф: <b>{days} дней</b>\n"
+            f"Сумма: <b>{price} руб</b>\n\n"
+            f"Нажмите кнопку ниже для безопасной оплаты. Ваши средства поступят напрямую. После успешной оплаты подписка активируется автоматически в течение минуты.",
+            reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка создания ссылки YooMoney: {e}")
+        await callback.answer("Ошибка создания платежа.", show_alert=True)
+    
+    await callback.answer()
+
+
 # Обработка нажатия на тариф Telegram Stars
 @dp.callback_query(F.data.startswith("buy_stars_"))
 async def process_buy_stars(callback: CallbackQuery):
@@ -684,12 +750,12 @@ async def process_buy_stars(callback: CallbackQuery):
 
     # Цены в Звездах (XTR)
     prices_map = {
-        30: 150,
-        90: 400,
-        365: 1300
+        30: 55,
+        90: 139,
+        365: 495
     }
 
-    price = prices_map.get(days, 150)
+    price = prices_map.get(days, 55)
 
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
@@ -712,9 +778,9 @@ async def process_buy_crypto(callback: CallbackQuery):
 
     days = int(callback.data.split("_")[2])
     prices = {
-        30: 299,
-        90: 690,
-        365: 2190
+        30: 99,
+        90: 249,
+        365: 899
     }
     price_rub = prices.get(days, 0)
     
@@ -724,7 +790,7 @@ async def process_buy_crypto(callback: CallbackQuery):
         
     try:
         # Для упрощения 100 рублей = 1 USDT
-        price_usdt = round(price_rub / 100.0, 2)
+        price_usdt = round(price_rub / 80.0, 2)
         
         invoice = await cryptopay.create_invoice(
             asset='USDT', 
@@ -1157,6 +1223,66 @@ async def check_expiring_soon():
                 pass
 
 
+async def check_yoomoney_invoices():
+    """Фоновая задача: проверка переводов на ЮMoney-кошелек"""
+    if not yoomoney_client:
+        return
+        
+    try:
+        # Получаем историю успешных входящих переводов
+        history = yoomoney_client.operation_history(type="deposition", status="success")
+        
+        for operation in history.operations:
+            label = operation.label
+            if label and label.startswith("vpn_"):
+                parts = label.split("_")
+                if len(parts) == 3:
+                    user_id = int(parts[1])
+                    days = int(parts[2])
+                    
+                    if db.is_payment_processed(operation.operation_id):
+                        continue
+                        
+                    logger.info(f"Найден оплаченный счет YooMoney: {operation.amount} руб от пользователя {user_id}")
+                    db.mark_payment_processed(operation.operation_id)
+                    
+                    # Выдаем подписку
+                    db.add_subscription(user_id, days)
+
+                    # Рефералка
+                    referrer_id = db.get_referrer(user_id)
+                    if referrer_id:
+                        db.add_subscription(referrer_id, 3)
+                        try:
+                            await bot.send_message(
+                                chat_id=referrer_id,
+                                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку ЮMoney. Вам начислено <b>+3 бонусных дня</b>!",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    
+                    # Ключ
+                    user_data = db.get_user(user_id)
+                    client_uuid = user_data[2] if user_data else None
+                    if not client_uuid:
+                        new_uuid = await panel_api.add_client(user_id)
+                        if new_uuid:
+                            db.update_uuid(user_id, new_uuid)
+
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=f"✅ <b>Оплата через ЮMoney успешно получена!</b>\n\nВам начислено <b>{days} дней</b> подписки.\nПерейдите в Личный кабинет за подробностями.",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logger.error(f"Не удалось отправить уведомление об оплате YooMoney {user_id}: {e}")
+                        
+    except Exception as e:
+        logger.error(f"Ошибка при проверке истории ЮMoney: {e}")
+
+
 async def check_cryptopay_invoices():
     """Фоновая задача: проверка статуса счетов CryptoBot"""
     if not cryptopay:
@@ -1240,6 +1366,7 @@ async def main():
     scheduler.add_job(check_expired_subscriptions, trigger='interval', hours=1)
     scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
+    scheduler.add_job(check_yoomoney_invoices, trigger='interval', seconds=15)
     scheduler.start()
 
     try:

@@ -60,7 +60,11 @@
 
         if (appScheme && subUrl) {
             // Формируем глубокую ссылку (Deep Link)
-            const deepLink = `${appScheme}://import/${subUrl}`;
+            let action = "import";
+            if (appScheme === "happ") {
+                action = "add";
+            }
+            const deepLink = `${appScheme}://${action}/${subUrl}`;
             
             // Прописываем ссылку в кнопку на случай проблем с авто-открытием
             document.getElementById('manual-btn').href = deepLink;
