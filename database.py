@@ -13,7 +13,8 @@ def init_db():
             balance INTEGER DEFAULT 0,
             sub_end_date TEXT DEFAULT NULL,
             uuid TEXT DEFAULT NULL,
-            is_active INTEGER DEFAULT 0
+            is_active INTEGER DEFAULT 0,
+            notified_24h INTEGER DEFAULT 0
         )
     ''')
     cursor.execute('''
@@ -23,6 +24,10 @@ def init_db():
     ''')
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN notified_24h INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -60,6 +65,14 @@ def get_username(telegram_id: int):
     conn.close()
     return result[0] if result else None
 
+def get_user_by_username(username: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    clean_username = username.lstrip('@')
+    cursor.execute("SELECT telegram_id FROM users WHERE username = ?", (clean_username,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
 
 def update_uuid(telegram_id: int, client_uuid: str):
@@ -87,7 +100,7 @@ def add_subscription(telegram_id: int, days: int):
     new_end_str = new_end.strftime("%Y-%m-%d %H:%M:%S")
 
     # Обновляем дату и сразу ставим статус активного
-    cursor.execute("UPDATE users SET sub_end_date = ?, is_active = 1 WHERE telegram_id = ?", (new_end_str, telegram_id))
+    cursor.execute("UPDATE users SET sub_end_date = ?, is_active = 1, notified_24h = 0 WHERE telegram_id = ?", (new_end_str, telegram_id))
     conn.commit()
     conn.close()
 
@@ -110,6 +123,34 @@ def get_active_users():
     result = cursor.fetchall()
     conn.close()
     return result
+
+
+def get_users_expired_24h():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, sub_end_date FROM users WHERE is_active = 0 AND sub_end_date IS NOT NULL AND notified_24h = 0")
+    results = cursor.fetchall()
+    conn.close()
+    
+    now = datetime.now()
+    expired_users = []
+    for row in results:
+        tid, dt_str = row
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            if (now - dt).total_seconds() >= 86400: # 24 hours
+                expired_users.append(tid)
+        except Exception:
+            pass
+    return expired_users
+
+
+def mark_notified_24h(telegram_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET notified_24h = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
 
 
 def set_inactive(telegram_id: int):

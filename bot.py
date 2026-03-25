@@ -60,6 +60,7 @@ class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_days = State()
     waiting_for_broadcast_msg = State()
+    waiting_for_broadcast_btn = State()
     waiting_for_search_id = State()
 
 class SupportStates(StatesGroup):
@@ -67,6 +68,17 @@ class SupportStates(StatesGroup):
 
 class AdminSupportStates(StatesGroup):
     replying_to_user = State()
+
+class GiftStates(StatesGroup):
+    waiting_for_recipient = State()
+
+class GiftStates(StatesGroup):
+    waiting_for_recipient = State()
+
+
+class GiftStates(StatesGroup):
+    waiting_for_recipient = State()
+
 
 support_timeouts: Dict[int, asyncio.Task] = {} # user_id -> asyncio.Task
 
@@ -157,6 +169,8 @@ def get_profile_kb(sub_link: str | None = None):
     keyboard.extend([
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
+        [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
+        [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
@@ -197,9 +211,9 @@ def get_tariffs_kb(telegram_id: int):
         keyboard.append([InlineKeyboardButton(text="🎁 Бесплатный тест (24 часа)", callback_data="test_24h")])
         
     keyboard.extend([
-        [InlineKeyboardButton(text="1 месяц", callback_data="select_tariff_30")],
-        [InlineKeyboardButton(text="🔥 3 месяца (Выгода 20%)", callback_data="select_tariff_90")],
-        [InlineKeyboardButton(text="12 месяцев (Выгода 33%)", callback_data="select_tariff_365")],
+        [InlineKeyboardButton(text="1 месяц - 99р", callback_data="select_tariff_30")],
+        [InlineKeyboardButton(text="🔥 3 месяца (Выгода 20%) - 249р", callback_data="select_tariff_90")],
+        [InlineKeyboardButton(text="12 месяцев (Выгода 33%) - 899р", callback_data="select_tariff_365")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -221,6 +235,32 @@ def get_docs_kb():
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
 
+async def send_success_message(user_id: int, days: int, is_gift: bool = False, giver_username: str = None):
+    text = (
+        f"🎉 <b>Подписка успешно оформлена!</b>\n\n"
+        f"Вам начислено <b>{days} дней</b> подписки.\n"
+        f"Перейдите в Личный кабинет, чтобы скопировать ваш ключ."
+    )
+    if is_gift:
+        text = (
+            f"🎁 <b>Вам подарок!</b>\n\n"
+            f"Пользователь <b>{giver_username}</b> подарил вам подписку на <b>{days} дней</b>!\n"
+            f"Перейдите в Личный кабинет за подробностями."
+        )
+        
+    try:
+        from aiogram.types import FSInputFile
+        import os
+        image_path = "Подписка куплена.png"
+        kb = get_main_menu_kb(user_id)
+        
+        if os.path.exists(image_path):
+            photo = FSInputFile(image_path)
+            await bot.send_photo(chat_id=user_id, photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
+        else:
+            await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Не удалось отправить уведомление об оплате {user_id}: {e}")
 
 async def send_welcome_message(chat_id: int, user_id: int):
     user_data = db.get_user(user_id)
@@ -331,19 +371,36 @@ async def process_admin_give_sub(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
 
-    await callback.message.answer("Введите Telegram ID пользователя, которому нужно выдать подписку:")
+    await callback.message.answer("Введите Telegram ID или @username пользователя, которому нужно выдать подписку:")
     await state.set_state(AdminStates.waiting_for_user_id)
     await callback.answer()
 
 
 @dp.message(AdminStates.waiting_for_user_id)
 async def process_user_id_input(message: Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("Ошибка. ID должен состоять только из цифр. Введите ID еще раз:")
+    text = message.text.strip()
+    target_id = None
+    
+    if text.isdigit():
+        target_id = int(text)
+    elif text.startswith("@") or text.isalnum():
+        username = text.lstrip("@")
+        found_id_by_username = db.get_user_by_username(username)
+        if found_id_by_username:
+            target_id = found_id_by_username
+            
+    if not target_id:
+        await message.answer("Ошибка. Введите корректный ID (только цифры) или @username пользователя из базы:")
         return
 
-    await state.update_data(target_id=int(message.text))
-    await message.answer("Сколько дней подписки выдать?")
+    # Check if target_id exists in db
+    user_data = db.get_user(target_id)
+    if not user_data:
+        await message.answer(f"Пользователь не найден в базе данных. Проверьте ID/username и попробуйте еще раз:")
+        return
+
+    await state.update_data(target_id=target_id)
+    await message.answer(f"Пользователь найден (ID: {target_id}). Сколько дней подписки выдать?")
     await state.set_state(AdminStates.waiting_for_days)
 
 
@@ -380,10 +437,7 @@ async def process_days_input(message: Message, state: FSMContext):
 
         # Уведомляем самого пользователя
         try:
-            await bot.send_message(
-                chat_id=target_id,
-                text=f"🎁 Администратор выдал вам {days} дней подписки! Перейдите в Личный кабинет."
-            )
+            await send_success_message(target_id, days)
         except:
             await message.answer("Пользователь не получил уведомление (возможно, он заблокировал бота).")
     else:
@@ -398,30 +452,84 @@ async def process_admin_broadcast(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
 
-    await callback.message.answer("📝 Введите текст для массовой рассылки всем пользователям бота (поддерживается HTML разметка):")
+    await callback.message.answer(
+        "📝 Оправьте сообщение для массовой рассылки всем пользователям бота.\n"
+        "Вы можете прикрепить фото или видео с текстом (сохраняется форматирование).",
+    )
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
     await callback.answer()
 
 
 @dp.message(AdminStates.waiting_for_broadcast_msg)
 async def process_broadcast_message(message: Message, state: FSMContext):
+    await state.update_data(
+        broadcast_msg_id=message.message_id,
+        broadcast_chat_id=message.chat.id
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Пропустить", callback_data="broadcast_skip_btn")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu_main")]
+    ])
+    
+    await message.answer(
+        "Отлично! Сообщение сохранено.\n\n"
+        "🔗 Хотите добавить кнопку-ссылку под сообщением?\n"
+        "Отправьте её в формате: <b>Текст кнопки - https://link.com</b>\n"
+        "Или нажмите «Пропустить».\n",
+        reply_markup=kb, parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.waiting_for_broadcast_btn)
+
+@dp.callback_query(F.data == "broadcast_skip_btn")
+async def process_broadcast_skip_btn(callback: CallbackQuery, state: FSMContext):
+    await execute_broadcast(callback.message, state, None)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_broadcast_btn)
+async def process_broadcast_btn_message(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if " - " not in text:
+        await message.answer("Неверный формат. Пожалуйста, используйте формат: Текст - https://link.com\nИли нажмите Пропустить.")
+        return
+        
+    parts = text.split(" - ", 1)
+    btn_text = parts[0].strip()
+    btn_url = parts[1].strip()
+    
+    if not btn_url.startswith("http"):
+        btn_url = "https://" + btn_url
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, url=btn_url)]])
+    await execute_broadcast(message, state, kb)
+
+async def execute_broadcast(context_message: Message, state: FSMContext, reply_markup: InlineKeyboardMarkup | None):
+    data = await state.get_data()
+    msg_id = data.get("broadcast_msg_id")
+    chat_id = data.get("broadcast_chat_id")
+    
     await state.clear()
     users = db.get_all_users()
     success = 0
     fail = 0
     
-    await message.answer(f"⏳ Начинаю рассылку для {len(users)} пользователей...")
+    await context_message.answer(f"⏳ Начинаю рассылку для {len(users)} пользователей...")
     
     for user_id in users:
         try:
-            await bot.send_message(user_id, message.html_text, parse_mode="HTML")
+            await bot.copy_message(
+                chat_id=user_id,
+                from_chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=reply_markup
+            )
             success += 1
         except Exception:
             fail += 1
             
-        await asyncio.sleep(0.05) # Небольшая пауза для избежания FloodWait
+        await asyncio.sleep(0.05)
         
-    await message.answer(f"✅ Рассылка завершена!\n\nУспешно: {success}\nОшибок: {fail}")
+    await context_message.answer(f"✅ Рассылка завершена!\n\nУспешно: {success}\nОшибок: {fail}")
 
 
 # --- УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ---
@@ -430,18 +538,28 @@ async def process_admin_search_user(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
 
-    await callback.message.answer("🔍 Введите Telegram ID пользователя, которого хотите найти:")
+    await callback.message.answer("🔍 Введите Telegram ID пользователя или его @username:")
     await state.set_state(AdminStates.waiting_for_search_id)
     await callback.answer()
 
 
 @dp.message(AdminStates.waiting_for_search_id)
 async def process_search_user_input(message: Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("Ошибка. ID должен состоять только из цифр. Введите ID еще раз:")
+    text = message.text.strip()
+    target_id = None
+    
+    if text.isdigit():
+        target_id = int(text)
+    elif text.startswith("@") or text.isalnum():
+        username = text.lstrip("@")
+        found_id_by_username = db.get_user_by_username(username)
+        if found_id_by_username:
+            target_id = found_id_by_username
+            
+    if not target_id:
+        await message.answer("Ошибка. Введите корректный ID (только цифры) или @username пользователя из базы:")
         return
 
-    target_id = int(message.text)
     user_data = db.get_user(target_id)
     
     if not user_data:
@@ -526,8 +644,42 @@ async def process_install(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "gift_sub_start")
+async def process_gift_sub_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("🎁 <b>Подарить подписку</b>\n\nВведите Telegram ID пользователя или его @username, которому хотите сделать подарок:", parse_mode="HTML")
+    await state.set_state(GiftStates.waiting_for_recipient)
+    await callback.answer()
+
+@dp.message(GiftStates.waiting_for_recipient)
+async def process_gift_recipient(message: Message, state: FSMContext):
+    text = message.text.strip()
+    target_id = None
+    if text.isdigit():
+        target_id = int(text)
+    elif text.startswith("@") or text.isalnum():
+        username = text.lstrip("@")
+        found_id_by_username = db.get_user_by_username(username)
+        if found_id_by_username:
+            target_id = found_id_by_username
+
+    if not target_id or not db.get_user(target_id):
+        await message.answer("❌ Пользователь не найден в базе данных.\nПроверьте данные и попробуйте еще раз (введите ID или @username):")
+        return
+
+    if target_id == message.from_user.id:
+        await message.answer("Вы не можете подарить подписку самому себе. Выберите 'Оплатить VPN' в главном меню.")
+        await state.clear()
+        return
+
+    await state.update_data(gift_recipient_id=target_id)
+    text = f"🎁 Вы собираетесь купить подписку в подарок для пользователя (ID: <code>{target_id}</code>).\n\n💎 <b>Выберите подходящий тариф:</b>"
+    await message.answer(text, reply_markup=get_tariffs_kb(target_id), parse_mode="HTML")
+    await state.set_state(None)
+
+
 @dp.callback_query(F.data == "menu_tariffs")
-async def process_tariffs(callback: CallbackQuery):
+async def process_tariffs(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(gift_recipient_id=None)
     text = "💎 <b>Выберите подходящий тариф:</b>\n\nЧем дольше период, тем выгоднее цена."
     await safe_edit(callback.message, text, reply_markup=get_tariffs_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
@@ -661,12 +813,40 @@ async def process_test_24h(callback: CallbackQuery):
         else:
             await panel_api.update_client_expiry(client_uuid, telegram_id, expiry_ms)
             
-    await callback.message.edit_text(
-        "🎁 <b>Вам выдан бесплатный тестовый период на 24 часа!</b>\n\n"
-        "Перейдите в Личный кабинет, чтобы получить ключ.",
-        reply_markup=get_main_menu_kb(telegram_id), parse_mode="HTML"
-    )
+    await send_success_message(telegram_id, 1)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.answer()
+
+
+@dp.callback_query(F.data == "gift_sub_start")
+async def process_gift_sub_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("🎁 <b>Подарить подписку</b>\n\nВведите Telegram ID пользователя или его @username:")
+    await state.set_state(GiftStates.waiting_for_recipient)
+    await callback.answer()
+
+@dp.message(GiftStates.waiting_for_recipient)
+async def process_gift_recipient(message: Message, state: FSMContext):
+    text = message.text.strip()
+    target_id = None
+    if text.isdigit():
+        target_id = int(text)
+    elif text.startswith("@") or text.isalnum():
+        username = text.lstrip("@")
+        found_id = db.get_user_by_username(username)
+        if found_id:
+            target_id = found_id
+
+    if not target_id or not db.get_user(target_id):
+        await message.answer("❌ Пользователь не найден в базе данных. Проверьте данные и попробуйте еще раз:")
+        return
+
+    await state.update_data(gift_recipient_id=target_id)
+    text = f"🎁 Вы собираетесь купить подписку в подарок для пользователя (ID: {target_id}).\n\n💎 <b>Выберите подходящий тариф:</b>"
+    await message.answer(text, reply_markup=get_tariffs_kb(target_id), parse_mode="HTML")
+    await state.set_state(None)
 
 # Обработка выбора тарифа
 @dp.callback_query(F.data.startswith("select_tariff_"))
@@ -693,7 +873,7 @@ async def process_select_tariff(callback: CallbackQuery):
 
 # Обработка нажатия на тариф YooMoney
 @dp.callback_query(F.data.startswith("buy_yoomoney_"))
-async def process_buy_yoomoney(callback: CallbackQuery):
+async def process_buy_yoomoney(callback: CallbackQuery, state: FSMContext):
     if not YOOMONEY_TOKEN or not YOOMONEY_WALLET:
         await callback.answer("Оплата ЮMoney временно недоступна. Пожалуйста, обратитесь к администратору.", show_alert=True)
         return
@@ -710,7 +890,12 @@ async def process_buy_yoomoney(callback: CallbackQuery):
         await callback.answer("Ошибка тарифа.", show_alert=True)
         return
 
-    label = f"vpn_{callback.from_user.id}_{days}"
+    data = await state.get_data()
+    recipient_id = data.get("gift_recipient_id")
+    if recipient_id:
+        label = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+    else:
+        label = f"vpn_{callback.from_user.id}_{days}"
     
     # Generate Quickpay URL
     try:
@@ -745,7 +930,7 @@ async def process_buy_yoomoney(callback: CallbackQuery):
 
 # Обработка нажатия на тариф Telegram Stars
 @dp.callback_query(F.data.startswith("buy_stars_"))
-async def process_buy_stars(callback: CallbackQuery):
+async def process_buy_stars(callback: CallbackQuery, state: FSMContext):
     days = int(callback.data.split("_")[2])
 
     # Цены в Звездах (XTR)
@@ -757,11 +942,21 @@ async def process_buy_stars(callback: CallbackQuery):
 
     price = prices_map.get(days, 55)
 
+    data = await state.get_data()
+    recipient_id = data.get("gift_recipient_id")
+
+    data = await state.get_data()
+    recipient_id = data.get("gift_recipient_id")
+    if recipient_id:
+        payload = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+    else:
+        payload = f"vpn_sub_{days}"
+
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
         title=f"Подписка GuepardVPN на {days} дней",
         description="Безлимитный трафик, высокая скорость и надежная защита ваших данных.",
-        payload=f"vpn_sub_{days}",
+        payload=payload,
         provider_token="",  # Для Telegram Stars токен провайдера должен быть пустым
         currency="XTR",  # Код валюты Telegram Stars
         prices=[LabeledPrice(label="VPN Подписка", amount=price)]
@@ -771,7 +966,7 @@ async def process_buy_stars(callback: CallbackQuery):
 
 # Обработка нажатия на тариф CryptoPay
 @dp.callback_query(F.data.startswith("buy_crypto_"))
-async def process_buy_crypto(callback: CallbackQuery):
+async def process_buy_crypto(callback: CallbackQuery, state: FSMContext):
     if not cryptopay:
         await callback.answer("Оплата криптовалютой временно недоступна.", show_alert=True)
         return
@@ -792,11 +987,21 @@ async def process_buy_crypto(callback: CallbackQuery):
         # Для упрощения 100 рублей = 1 USDT
         price_usdt = round(price_rub / 80.0, 2)
         
+        data = await state.get_data()
+        recipient_id = data.get("gift_recipient_id")
+        
+        data = await state.get_data()
+        recipient_id = data.get("gift_recipient_id")
+        if recipient_id:
+            payload = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+        else:
+            payload = f"vpn_{callback.from_user.id}_{days}"
+        
         invoice = await cryptopay.create_invoice(
             asset='USDT', 
             amount=price_usdt, 
             description=f"Подписка GuepardVPN на {days} дней",
-            payload=f"vpn_{callback.from_user.id}_{days}"
+            payload=payload
         )
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1108,9 +1313,29 @@ async def process_support_close_final(callback: CallbackQuery):
 @dp.message(F.successful_payment)
 async def process_successful_payment(message: Message):
     payload = message.successful_payment.invoice_payload
-    days = int(payload.split("_")[2])
+    is_gift = False
+    giver_username = None
+    
+    if payload.startswith("vpn_gift_"):
+        parts = payload.split("_")
+        telegram_id = int(parts[2])
+        days = int(parts[3])
+        buyer_id = int(parts[4])
+        is_gift = True
+        giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+        
+        try:
+            bot_info = await bot.get_me()
+            await bot.send_message(
+                chat_id=buyer_id,
+                text=f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{telegram_id}</code>!", parse_mode="HTML"
+            )
+        except:
+            pass
+    else:
+        days = int(payload.split("_")[2])
+        telegram_id = message.from_user.id
 
-    telegram_id = message.from_user.id
     db.add_subscription(telegram_id, days)
 
     # Проверяем реферала и выдаем бонусы
@@ -1136,12 +1361,7 @@ async def process_successful_payment(message: Message):
         if new_uuid:
             db.update_uuid(telegram_id, new_uuid)
 
-    text = (
-        f"🎉 <b>Оплата успешно прошла!</b>\n\n"
-        f"Вам начислено {days} дней подписки.\n"
-        f"Перейдите в Личный кабинет, чтобы скопировать ваш ключ."
-    )
-    await message.answer(text, reply_markup=get_main_menu_kb(), parse_mode="HTML")
+    await send_success_message(telegram_id, days, is_gift=is_gift, giver_username=giver_username)
 
 
 # Новая функция для проверки истекших подписок
@@ -1223,6 +1443,26 @@ async def check_expiring_soon():
                 pass
 
 
+async def check_expired_24h_ago():
+    expired_users = db.get_users_expired_24h()
+    from aiogram.types import FSInputFile
+    import os
+    
+    for user_id in expired_users:
+        try:
+            text = (
+                "🚀 <b>Ваш лучший выбор — GuepardVPN</b>\n\n"
+                "Прошло 24 часа без вашей подписки, но мы готовы снова защитить ваши данные.\n\n"
+                "Не ждите, пока станет поздно — продлите подписку и пользуйтесь быстрым и надёжным подключением!"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Купить подписку", callback_data="menu_tariffs")]
+            ])
+            await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+            db.mark_notified_24h(user_id)
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление 24h {user_id}: {e}")
+
 async def check_yoomoney_invoices():
     """Фоновая задача: проверка переводов на ЮMoney-кошелек"""
     if not yoomoney_client:
@@ -1239,14 +1479,30 @@ async def check_yoomoney_invoices():
             label = operation.label
             if label and label.startswith("vpn_"):
                 parts = label.split("_")
-                if len(parts) == 3:
+                
+                is_gift = False
+                giver_username = None
+                
+                if parts[1] == "gift" and len(parts) == 5:
+                    user_id = int(parts[2])
+                    days = int(parts[3])
+                    buyer_id = int(parts[4])
+                    is_gift = True
+                    giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+                    try:
+                        await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
+                    except:
+                        pass
+                elif len(parts) == 3:
                     user_id = int(parts[1])
                     days = int(parts[2])
+                else:
+                    continue
                     
-                    if db.is_payment_processed(operation.operation_id):
-                        continue
+                if db.is_payment_processed(operation.operation_id):
+                    continue
                         
-                    # Базовая проверка суммы (с учетом комиссии)
+                # Базовая проверка суммы (с учетом комиссии)
                     prices_map = {30: 10, 90: 249, 365: 899} # 30 - 10 rub test
                     expected_price = prices_map.get(days, 0)
                     if expected_price > 0 and operation.amount < expected_price * 0.95:
@@ -1280,14 +1536,7 @@ async def check_yoomoney_invoices():
                         if new_uuid:
                             db.update_uuid(user_id, new_uuid)
 
-                    try:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=f"✅ <b>Оплата через ЮMoney успешно получена!</b>\n\nВам начислено <b>{days} дней</b> подписки.\nПерейдите в Личный кабинет за подробностями.",
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        logger.error(f"Не удалось отправить уведомление об оплате YooMoney {user_id}: {e}")
+                    await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
     except Exception as e:
         logger.error(f"Ошибка при проверке истории ЮMoney: {e}")
@@ -1306,51 +1555,60 @@ async def check_cryptopay_invoices():
         for inv in invoices:
             if inv.payload and inv.payload.startswith("vpn_"):
                 parts = inv.payload.split("_")
-                if len(parts) == 3:
+                
+                is_gift = False
+                giver_username = None
+                
+                if parts[1] == "gift" and len(parts) == 5:
+                    user_id = int(parts[2])
+                    days = int(parts[3])
+                    buyer_id = int(parts[4])
+                    is_gift = True
+                    giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+                    try:
+                        await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
+                    except:
+                        pass
+                elif len(parts) == 3:
                     user_id = int(parts[1])
                     days = int(parts[2])
+                else:
+                    continue
                     
-                    amount = inv.amount
-                    logger.info(f"Найден оплаченный счет CryptoBot {inv.invoice_id} на {amount} {inv.asset}")
+                amount = inv.amount
+                logger.info(f"Найден оплаченный счет CryptoBot {inv.invoice_id} на {amount} {inv.asset}")
                     
-                    # Удаляем инвойс чтобы не обрабатывать дважды
-                    try:
-                        await cryptopay.delete_invoice(invoice_id=inv.invoice_id)
-                    except Exception as e:
-                        logger.error(f"Ошибка удаления инвойса: {e}")
+                # Удаляем инвойс чтобы не обрабатывать дважды
+                try:
+                    await cryptopay.delete_invoice(invoice_id=inv.invoice_id)
+                except Exception as e:
+                    logger.error(f"Ошибка удаления инвойса: {e}")
                     
-                    # Выдаем подписку
-                    db.add_subscription(user_id, days)
+                # Выдаем подписку
+                db.add_subscription(user_id, days)
 
-                    # Рефералка
-                    referrer_id = db.get_referrer(user_id)
-                    if referrer_id:
-                        db.add_subscription(referrer_id, 3)
-                        try:
-                            await bot.send_message(
-                                chat_id=referrer_id,
-                                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+3 бонусных дня</b>!",
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
-                    
-                    # Ключ
-                    user_data = db.get_user(user_id)
-                    client_uuid = user_data[2] if user_data else None
-                    if not client_uuid:
-                        new_uuid = await panel_api.add_client(user_id)
-                        if new_uuid:
-                            db.update_uuid(user_id, new_uuid)
-
+                # Рефералка
+                referrer_id = db.get_referrer(user_id)
+                if referrer_id:
+                    db.add_subscription(referrer_id, 3)
                     try:
                         await bot.send_message(
-                            chat_id=user_id,
-                            text=f"✅ <b>Оплата через CryptoBot успешно получена!</b>\n\nВам начислено <b>{days} дней</b> подписки.\nПерейдите в Личный кабинет за подробностями.",
+                            chat_id=referrer_id,
+                            text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+3 бонусных дня</b>!",
                             parse_mode="HTML"
                         )
-                    except Exception as e:
-                        logger.error(f"Не удалось отправить уведомление об оплате CryptoBot пользователю {user_id}: {e}")
+                    except Exception:
+                        pass
+                
+                # Ключ
+                user_data = db.get_user(user_id)
+                client_uuid = user_data[2] if user_data else None
+                if not client_uuid:
+                    new_uuid = await panel_api.add_client(user_id)
+                    if new_uuid:
+                        db.update_uuid(user_id, new_uuid)
+
+                await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
     except Exception as e:
         logger.error(f"Ошибка при проверке инвойсов CryptoPay: {e}")
@@ -1375,6 +1633,7 @@ async def main():
     scheduler = AsyncIOScheduler(timezone='Europe/Moscow')
     scheduler.add_job(check_expired_subscriptions, trigger='interval', hours=1)
     scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
+    scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
     scheduler.add_job(check_yoomoney_invoices, trigger='interval', seconds=15)
     scheduler.start()
