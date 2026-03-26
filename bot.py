@@ -985,7 +985,7 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
         from yookassa import Payment as YKPayment
         payment = YKPayment.create({
             "amount": {"value": f"{price}.00", "currency": "RUB"},
-            "confirmation": {"type": "redirect", "return_url": "https://t.me/guepard_vpn_bot"},
+            "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
             "capture": True,
             "description": f"Подписка GuepardVPN на {days} дней",
             "metadata": {"label": label}
