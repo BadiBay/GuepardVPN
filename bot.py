@@ -169,7 +169,6 @@ def get_profile_kb(sub_link: str | None = None):
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
-        [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
