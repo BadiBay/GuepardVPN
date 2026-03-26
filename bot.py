@@ -185,7 +185,8 @@ def get_admin_kb():
         [InlineKeyboardButton(text="🎁 Выдать подписку", callback_data="admin_give_sub")],
         [InlineKeyboardButton(text="🔍 Найти пользователя", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="🔙 Выход", callback_data="menu_main")]
+        [InlineKeyboardButton(text="🔙 Выход", callback_data="menu_main")],
+        [InlineKeyboardButton(text="🔔 Тест уведомления", callback_data="admin_test_notify")]
     ])
 
 def get_devices_kb():
@@ -439,6 +440,66 @@ async def cmd_admin(message: Message):
     text = "🔒 <b>Панель администратора</b>\n\nВыберите нужное действие:"
     await message.answer(text, reply_markup=get_admin_kb(), parse_mode="HTML")
 
+
+@dp.callback_query(F.data == "admin_test_notify")
+async def process_admin_test_notify(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+
+    from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+    import os
+
+    # Имитируем данные для теста (как будто осталось 3 дня)
+    # Текст перенесен 1 в 1 из оригинальной функции check_expiring_soon
+    base_notify_text = "⏳ <b>Ваша подписка истекает через 3 дня.</b>"
+    test_image_path = "3 дня.png"  # Убедитесь, что этот файл есть на сервере!
+    admin_id = callback.from_user.id
+
+    # Вспомогательная функция для сборки и отправки сообщения админу
+    async def send_test_message(notify_text: str, is_auto_renew_on: bool):
+        if is_auto_renew_on:
+            # Текст и клавиатура перенесены 1 в 1 для включенного автопродления
+            renewal_note = (
+                "\n\n🔄 <b>Автопродление включено</b> — подписка будет продлена автоматически, "
+                "сумма спишется с вашей сохранённой карты.\n"
+                "Чтобы отключить автопродление, перейдите в 👤 <b>Личный кабинет</b>."
+            )
+            text = f"{notify_text}{renewal_note}"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")],
+                [InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)", callback_data="toggle_auto_renew")]
+            ])
+            status_desc = "ВКЛЮЧЕННЫМ"
+        else:
+            # Текст и клавиатура перенесены 1 в 1 для выключенного автопродления
+            text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")],
+                [InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)", callback_data="toggle_auto_renew")]
+            ])
+            status_desc = "ВЫКЛЮЧЕННЫМ"
+
+        full_text = f"⚙️ <b>[ТЕСТУВЕДОМЛЕНИЯ] Вариант с {status_desc} автопродлением:</b>\n\n{text}"
+
+        try:
+            if test_image_path and os.path.exists(test_image_path):
+                photo = FSInputFile(test_image_path)
+                await bot.send_photo(chat_id=admin_id, photo=photo, caption=full_text, reply_markup=kb,
+                                     parse_mode="HTML")
+            else:
+                await bot.send_message(chat_id=admin_id, text=f"🖼️ (Нет картинки {test_image_path})\n\n{full_text}",
+                                       reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            pass  # Если бот не может отправить сообщение себе, игнорируем (например, нет чата)
+
+    # Убираем часики загрузки с кнопки
+    await callback.answer("⏳ Генерирую тестовые уведомления...")
+
+    # Отправляем 1-й вариант (Автопродление: ВЫКЛ)
+    await send_test_message(base_notify_text, is_auto_renew_on=False)
+
+    # Отправляем 2-й вариант (Автопродление: ВКЛ)
+    await send_test_message(base_notify_text, is_auto_renew_on=True)
 
 @dp.callback_query(F.data == "admin_stats")
 async def process_admin_stats(callback: CallbackQuery):
