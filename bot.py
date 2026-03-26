@@ -185,8 +185,8 @@ def get_admin_kb():
         [InlineKeyboardButton(text="🎁 Выдать подписку", callback_data="admin_give_sub")],
         [InlineKeyboardButton(text="🔍 Найти пользователя", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="🔙 Выход", callback_data="menu_main")],
-        [InlineKeyboardButton(text="🔔 Тест уведомления", callback_data="admin_test_notify")]
+        [InlineKeyboardButton(text="🔔 Тест уведомления", callback_data="admin_test_notify")],
+        [InlineKeyboardButton(text="🔙 Выход", callback_data="menu_main")]
     ])
 
 def get_devices_kb():
