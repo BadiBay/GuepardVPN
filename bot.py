@@ -173,9 +173,9 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
     ])
     #if has_payment_method:
     if auto_renew:
-        keyboard.append([InlineKeyboardButton(text="Отключить автопродление", callback_data="toggle_auto_renew")])
+        keyboard.append([InlineKeyboardButton(text="Отключить автопродление❌", callback_data="toggle_auto_renew")])
     else:
-        keyboard.append([InlineKeyboardButton(text="Включить автопродление", callback_data="toggle_auto_renew")])
+        keyboard.append([InlineKeyboardButton(text="Включить автопродление✅", callback_data="toggle_auto_renew")])
     keyboard.append([InlineKeyboardButton(text="Назад", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -1227,15 +1227,15 @@ async def process_profile(callback: CallbackQuery):
     #if saved_pm:
     if auto_renew_flag:
         auto_renew_line = (
-            "\n\nАвтоматическая подписка подключена ✅\n(Рекуррентные платежи включены)\n\n"
-            "Это означает, что по окончанию подписки, стоимость подписки на следующий месяц списывается автоматически.\n"
-            "❗ Если вы хотите прекратить автоматическую подписку нажмите кнопку «Отключить»."
+            "\n\nАвтопродление подписки подключено ✅\n(Рекуррентные платежи включены)\n\n"
+            "Это означает, что по окончанию подписки, стоимость подписки на следующий период списывается автоматически.\n"
+            "❗ Если вы хотите прекратить автоматическую подписку нажмите кнопку «Отключить автопродление»."
         )
     else:
         auto_renew_line = (
-            "\n\nАвтоматическая подписка отключена ❌\n(Рекуррентные платежи)\n\n"
-            "Это означает, что сейчас у Бота нет возможности автоматически списывать стоимость подписки каждый месяц.\n"
-            "❗ Для того, чтобы включить автоматические платежи нажмите кнопку «Включить»."
+            "\n\nАвтопродление подписки отключено ❌\n(Рекуррентные платежи выключены)\n\n"
+            "Это означает, что сейчас у Бота нет возможности автоматически списывать стоимость подписки каждый период.\n"
+            "❗ Для того, чтобы включить автоматические платежи нажмите кнопку «Включить автопродление»."
         )
 
     text = (
