@@ -123,3 +123,17 @@ function shareRef() {
     const tgShareLink = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`;
     tg.openTelegramLink(tgShareLink);
 }
+
+function navToSupport() {
+    tg.openTelegramLink('https://t.me/guepard_vpn_bot?start=support');
+    tg.close();
+}
+
+function toggleDetails(id) {
+    const el = document.getElementById(id);
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}

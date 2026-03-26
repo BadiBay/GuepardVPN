@@ -228,8 +228,9 @@ def get_payment_method_kb(days: int):
 
 def get_docs_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Политика обработки данных ↗️", url="https://guepardvpn.top/policy.html")],
+        [InlineKeyboardButton(text="Политика обработки персональных данных ↗️", url="https://guepardvpn.top/policy.html")],
         [InlineKeyboardButton(text="Публичная оферта ↗️", url="https://guepardvpn.top/oferta.html")],
+        [InlineKeyboardButton(text="Политика возвратов ↗️", url="https://guepardvpn.top/refund-policy.html")],
         [InlineKeyboardButton(text="❓ FAQ", callback_data="stub_faq")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
@@ -366,7 +367,13 @@ async def cmd_start(message: Message, state: FSMContext):
                                 kb = InlineKeyboardMarkup(inline_keyboard=[
                                     [InlineKeyboardButton(text="💳 Оплатить (ЮMoney)", url=quickpay.redirected_url)]
                                 ])
-                                await message.answer(f"🧾 <b>Счет на оплату ЮMoney</b>\n\nТариф: <b>{days} дней</b>\nСумма: <b>{price} руб</b>\nНажмите кнопку ниже для безопасной оплаты.", reply_markup=kb, parse_mode="HTML")
+                                await message.answer(
+                                    f"🧾 <b>Счет на оплату ЮMoney (Банковская карта / Кошелек)</b>\n\n"
+                                    f"Тариф: <b>{days} дней</b>\n"
+                                    f"Сумма: <b>{price} руб</b>\n\n"
+                                    f"Нажмите кнопку ниже для безопасной оплаты. Ваши средства поступят напрямую. После успешной оплаты подписка активируется автоматически в течение минуты.",
+                                    reply_markup=kb, parse_mode="HTML"
+                                )
                             except Exception as e:
                                 logger.error(f"YooMoney error in start link: {e}")
                                 await message.answer("Ошибка создания платежа.")
@@ -383,7 +390,13 @@ async def cmd_start(message: Message, state: FSMContext):
                                 price_usdt = round(price_rub / 80.0, 2)
                                 invoice = await cryptopay.create_invoice(asset="USDT", amount=price_usdt, payload=f"vpn_{message.from_user.id}_{days}")
                                 kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🪙 Оплатить (CryptoBot)", url=invoice.bot_invoice_url)]])
-                                await message.answer(f"🧾 <b>Счет CryptoBot</b>\n\nТариф: <b>{days} дней</b>\nСумма: <b>{price_usdt} USDT</b>", reply_markup=kb, parse_mode="HTML")
+                                await message.answer(
+                                    f"🧾 <b>Счет на оплату криптовалютой</b>\n\n"
+                                    f"Тариф: <b>{days} дней</b>\n"
+                                    f"Сумма: <b>{price_usdt} USDT</b> (~{price_rub} руб)\n\n"
+                                    f"Нажмите кнопку ниже для безопасной оплаты. Ваши средства поступят напрямую. После успешной оплаты подписка активируется автоматически в течение минуты.",
+                                    reply_markup=kb, parse_mode="HTML"
+                                )
                             except Exception as e:
                                 logger.error(f"CryptoPay error in start link: {e}")
                                 await message.answer("Ошибка создания платежа CryptoPay.")

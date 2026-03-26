@@ -25,14 +25,14 @@
                 <span>🔑 Купить подписку</span>
             </button>
             <div class="btn-row">
-                <button class="btn btn-secondary" onclick="navTo('view-profile')">
+                <button class="btn btn-secondary" onclick="navTo('view-install')">
                     <span>🛡 Установить VPN</span>
                 </button>
                 <button class="btn btn-secondary" onclick="navTo('view-profile')">
                     <span>👤 Личный кабинет</span>
                 </button>
             </div>
-            <button class="btn btn-secondary" onclick="Telegram.WebApp.close()">
+            <button class="btn btn-secondary" onclick="navToSupport()">
                 <span>💬 Поддержка</span>
             </button>
             <button class="btn btn-secondary" onclick="navTo('view-free')">
@@ -182,6 +182,74 @@
                 <button class="copy-btn" onclick="copyRef()">📋</button>
             </div>
             <button class="btn btn-primary mt-12" onclick="shareRef()">Поделиться с другом</button>
+        </div>
+    </div>
+
+    <!-- VIEW 5: Install VPN -->
+    <div id="view-install" class="view">
+        <div class="top-nav">
+            <button class="back-btn" onclick="navTo('view-main')">←</button>
+            Установка VPN
+        </div>
+
+        <h2 class="text-center mb-24">Выберите<br>вашу платформу</h2>
+        
+        <div class="surface list-menu mb-16">
+            <div class="list-item" onclick="toggleDetails('ios-details')">
+                <div class="list-item-content">
+                    <span class="list-item-icon">🍏</span>
+                    <span>iOS (iPhone / iPad)</span>
+                </div>
+                <span class="chevron">▼</span>
+            </div>
+            <div id="ios-details" style="display:none; padding:10px 16px; border-top:1px solid var(--border-color); color:var(--text-secondary); font-size:14px;">
+                1. Скачайте <b>V2Ray Tun</b> или <b>Happ</b> в App Store.<br>
+                2. Скопируйте ваш ключ из Личного кабинета.<br>
+                3. Откройте приложение, нажмите <b>+</b> и выберите «Импорт из буфера обмена».<br>
+                <a href="https://apps.apple.com/ru/app/v2raytun/id6476628951" target="_blank" style="color:var(--accent-color); margin-top:10px; display:inline-block;">Скачать V2Ray Tun</a>
+            </div>
+
+            <div class="list-item" onclick="toggleDetails('android-details')">
+                <div class="list-item-content">
+                    <span class="list-item-icon">🤖</span>
+                    <span>Android</span>
+                </div>
+                <span class="chevron">▼</span>
+            </div>
+            <div id="android-details" style="display:none; padding:10px 16px; border-top:1px solid var(--border-color); color:var(--text-secondary); font-size:14px;">
+                1. Скачайте <b>V2Ray Tun</b> или <b>Happ</b> в Google Play.<br>
+                2. Скопируйте ключ из Личного кабинета.<br>
+                3. Откройте приложение, нажмите <b>+</b> и выберите «Импорт из буфера обмена».<br>
+                <a href="https://play.google.com/store/apps/details?id=com.v2raytun.android" target="_blank" style="color:var(--accent-color); margin-top:10px; display:inline-block;">Скачать V2Ray Tun</a>
+            </div>
+
+            <div class="list-item" onclick="toggleDetails('windows-details')">
+                <div class="list-item-content">
+                    <span class="list-item-icon">💻</span>
+                    <span>Windows</span>
+                </div>
+                <span class="chevron">▼</span>
+            </div>
+            <div id="windows-details" style="display:none; padding:10px 16px; border-top:1px solid var(--border-color); color:var(--text-secondary); font-size:14px;">
+                1. Скачайте <b>V2Ray Tun</b> или <b>Hiddify</b>.<br>
+                2. Скопируйте ваш ключ из Личного кабинета.<br>
+                3. Откройте приложение, добавьте профиль через буфер обмена.<br>
+                <a href="https://v2tun.ru/#download" target="_blank" style="color:var(--accent-color); margin-top:10px; display:inline-block;">Скачать V2Ray Tun(Win)</a>
+            </div>
+
+            <div class="list-item" onclick="toggleDetails('mac-details')">
+                <div class="list-item-content">
+                    <span class="list-item-icon">🍏</span>
+                    <span>MacOS</span>
+                </div>
+                <span class="chevron">▼</span>
+            </div>
+            <div id="mac-details" style="display:none; padding:10px 16px; border-top:1px solid var(--border-color); color:var(--text-secondary); font-size:14px;">
+                1. Скачайте <b>V2Ray Tun</b> или <b>Happ</b>.<br>
+                2. Скопируйте ключ из Личного кабинета.<br>
+                3. Откройте приложение, импортируйте профиль из буфера обмена.<br>
+                <a href="https://apps.apple.com/ru/app/v2raytun/id6476628951?platform=mac" target="_blank" style="color:var(--accent-color); margin-top:10px; display:inline-block;">Скачать V2Ray Tun(Mac)</a>
+            </div>
         </div>
     </div>
 
