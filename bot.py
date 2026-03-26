@@ -171,11 +171,11 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
     ])
-    if has_payment_method:
-        if auto_renew:
-            keyboard.append([InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)", callback_data="toggle_auto_renew")])
-        else:
-            keyboard.append([InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)", callback_data="toggle_auto_renew")])
+    #if has_payment_method:
+    if auto_renew:
+        keyboard.append([InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)", callback_data="toggle_auto_renew")])
+    else:
+        keyboard.append([InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)", callback_data="toggle_auto_renew")])
     keyboard.append([InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -1123,7 +1123,6 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @dp.callback_query(F.data == "menu_profile")
 async def process_profile(callback: CallbackQuery):
     user_data = db.get_user(callback.from_user.id)
-    balance = user_data[0] if user_data else 0
     sub_end_date_str = user_data[1] if user_data else None
     client_uuid = user_data[2] if user_data else None
 
@@ -1560,12 +1559,15 @@ async def check_expiring_soon():
                 )
                 text = f"{notify_text}{renewal_note}"
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
+                     [InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)",callback_data="toggle_auto_renew")]]
                 ])
             else:
                 text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")]
+                    [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs"),
+                     [InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)",callback_data="toggle_auto_renew")]
+                     ]
                 ])
 
             try:
