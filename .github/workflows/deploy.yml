@@ -38,6 +38,8 @@ jobs:
             fi
             
             cd /root/VPN
+            git pull origin main
+            docker-compose up -d --build --remove-orphans
             
             # Останавливаем старый контейнер и запускаем заново с новой сборкой
             docker compose down || true
