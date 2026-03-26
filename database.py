@@ -30,6 +30,18 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN notified_24h INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN auto_renew INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN saved_payment_method_id TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_tariff_days INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -234,3 +246,56 @@ def mark_payment_processed(operation_id: str):
     cursor.execute("INSERT OR IGNORE INTO processed_payments (operation_id) VALUES (?)", (str(operation_id),))
     conn.commit()
     conn.close()
+
+
+def set_auto_renew(telegram_id: int, enabled: bool):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET auto_renew = ? WHERE telegram_id = ?", (1 if enabled else 0, telegram_id))
+    conn.commit()
+    conn.close()
+
+
+def get_auto_renew(telegram_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT auto_renew, saved_payment_method_id FROM users WHERE telegram_id = ?", (telegram_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return bool(result[0]), result[1]
+    return False, None
+
+
+def save_payment_method(telegram_id: int, method_id: str, days: int):
+    """Сохраняет payment_method_id и тариф для автопродления, автоматически включает автопродление."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET saved_payment_method_id = ?, last_tariff_days = ?, auto_renew = 1 WHERE telegram_id = ?",
+        (method_id, days, telegram_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_users_for_auto_renew():
+    """Возвращает пользователей с auto_renew=1, сохранённым методом оплаты,
+    у которых подписка истекает в ближайшие 2 часа."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    now = datetime.now()
+    window_end = now + timedelta(hours=2)
+    cursor.execute(
+        """SELECT telegram_id, saved_payment_method_id, last_tariff_days, sub_end_date
+           FROM users
+           WHERE auto_renew = 1
+             AND saved_payment_method_id IS NOT NULL
+             AND is_active = 1
+             AND sub_end_date > ?
+             AND sub_end_date <= ?""",
+        (now.strftime("%Y-%m-%d %H:%M:%S"), window_end.strftime("%Y-%m-%d %H:%M:%S"))
+    )
+    result = cursor.fetchall()
+    conn.close()
+    return result

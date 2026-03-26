@@ -157,7 +157,7 @@ def get_main_menu_kb(user_id: int | None = None):
     ])
 
 
-def get_profile_kb(sub_link: str | None = None):
+def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_payment_method: bool = False):
     keyboard = []
     if sub_link:
         keyboard.append([InlineKeyboardButton(text="🔗 Страница вашей подписки", url=sub_link)])
@@ -170,8 +170,13 @@ def get_profile_kb(sub_link: str | None = None):
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
-        [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
+    if has_payment_method:
+        if auto_renew:
+            keyboard.append([InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)", callback_data="toggle_auto_renew")])
+        else:
+            keyboard.append([InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)", callback_data="toggle_auto_renew")])
+    keyboard.append([InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_kb():
@@ -365,6 +370,7 @@ async def cmd_start(message: Message, state: FSMContext):
                                     "amount": {"value": f"{price}.00", "currency": "RUB"},
                                     "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
                                     "capture": True,
+                                    "save_payment_method": True,
                                     "description": f"Подписка GuepardVPN на {days} дней",
                                     "metadata": {"label": label}
                                 }, str(_uuid.uuid4()))
@@ -987,6 +993,7 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
             "amount": {"value": f"{price}.00", "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
             "capture": True,
+            "save_payment_method": True,
             "description": f"Подписка GuepardVPN на {days} дней",
             "metadata": {"label": label}
         }, str(_uuid.uuid4()))
@@ -1120,10 +1127,13 @@ async def process_profile(callback: CallbackQuery):
     sub_end_date_str = user_data[1] if user_data else None
     client_uuid = user_data[2] if user_data else None
 
+    auto_renew_flag, saved_pm = db.get_auto_renew(callback.from_user.id)
+
     status_text = "❌ Неактивна"
     time_left_str = "0 дн."
     key_text = "<i>(появится после оплаты)</i>"
     used_gb = 0.0
+    sub_link = None
 
     if sub_end_date_str:
         sub_end_date = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
@@ -1133,12 +1143,12 @@ async def process_profile(callback: CallbackQuery):
             time_diff = sub_end_date - now
             d_left = time_diff.days
             h_left = time_diff.seconds // 3600
-            
+
             if d_left > 0:
                 time_left_str = f"{d_left} дн. {h_left} ч."
             else:
                 time_left_str = f"{h_left} ч."
-                
+
             used_gb = await panel_api.get_client_stats(callback.from_user.id)
 
             if client_uuid:
@@ -1147,18 +1157,44 @@ async def process_profile(callback: CallbackQuery):
                     sub_link = f"{panel_api.PANEL_URL}{sub_link}"
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
+    auto_renew_line = ""
+    if saved_pm:
+        if auto_renew_flag:
+            auto_renew_line = "\n🔄 <b>Автопродление: включено</b>"
+        else:
+            auto_renew_line = "\n🔕 <b>Автопродление: выключено</b>"
+
     text = (
         f"👤 <b>Личный кабинет</b>\n\n"
         f"ID: <code>{callback.from_user.id}</code>\n\n"
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
-        f"Использовано трафика: {used_gb} ГБ\n\n"
+        f"Использовано трафика: {used_gb} ГБ"
+        f"{auto_renew_line}\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
-    _sub_link = sub_link if 'sub_link' in locals() else None
-    await safe_edit(callback.message, text, reply_markup=get_profile_kb(_sub_link), parse_mode="HTML")
+    await safe_edit(callback.message, text, reply_markup=get_profile_kb(sub_link, auto_renew_flag, bool(saved_pm)), parse_mode="HTML")
     await callback.answer()
+
+
+@dp.callback_query(F.data == "toggle_auto_renew")
+async def process_toggle_auto_renew(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    auto_renew_flag, saved_pm = db.get_auto_renew(user_id)
+
+    if not saved_pm:
+        await callback.answer("Автопродление доступно только после оплаты картой через ЮKassa.", show_alert=True)
+        return
+
+    new_state = not auto_renew_flag
+    db.set_auto_renew(user_id, new_state)
+
+    state_text = "включено ✅" if new_state else "выключено 🔕"
+    await callback.answer(f"Автопродление {state_text}", show_alert=True)
+
+    # Обновляем профиль
+    await process_profile(callback)
 
 
 @dp.callback_query(F.data == "menu_devices")
@@ -1490,15 +1526,15 @@ async def check_expiring_soon():
     now = datetime.now()
     from aiogram.types import FSInputFile
     import os
-    
+
     for user_id, sub_end_date_str in active_users:
         sub_end = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
         diff = sub_end - now
         total_hours = diff.total_seconds() / 3600.0
-        
+
         notify_text = ""
         image_path = None
-        
+
         if 71.0 < total_hours <= 72.0:
             notify_text = "⏳ <b>Ваша подписка истекает через 3 дня.</b>"
             image_path = "3 дня.png"
@@ -1511,19 +1547,34 @@ async def check_expiring_soon():
         elif 2.0 < total_hours <= 3.0:
             notify_text = "⚠️ <b>Внимание! Ваша подписка истекает всего через 3 часа.</b>"
             image_path = "3 часа.png"
-            
+
         if notify_text:
-            text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")]
-            ])
+            # Получаем статус автопродления
+            auto_renew_flag, saved_pm = db.get_auto_renew(user_id)
+
+            if auto_renew_flag and saved_pm:
+                renewal_note = (
+                    "\n\n🔄 <b>Автопродление включено</b> — подписка будет продлена автоматически, "
+                    "сумма спишется с вашей сохранённой карты.\n"
+                    "Чтобы отключить автопродление, перейдите в 👤 <b>Личный кабинет</b>."
+                )
+                text = f"{notify_text}{renewal_note}"
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+                ])
+            else:
+                text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")]
+                ])
+
             try:
                 if image_path and os.path.exists(image_path):
                     photo = FSInputFile(image_path)
                     await bot.send_photo(chat_id=user_id, photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
                 else:
                     await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
-            except Exception as e:
+            except Exception:
                 pass
 
 
@@ -1595,6 +1646,16 @@ async def check_yookassa_invoices():
             # Выдаем подписку
             db.add_subscription(user_id, days)
 
+            # Сохраняем метод оплаты для автопродления (только для обычного платежа, не подарка)
+            if not is_gift:
+                try:
+                    pm = getattr(payment, 'payment_method', None)
+                    if pm and getattr(pm, 'saved', False) and getattr(pm, 'id', None):
+                        db.save_payment_method(user_id, pm.id, days)
+                        logger.info(f"Сохранён payment_method_id для {user_id}: {pm.id}")
+                except Exception as e:
+                    logger.warning(f"Не удалось сохранить payment_method для {user_id}: {e}")
+
             # Рефералка
             referrer_id = db.get_referrer(user_id)
             if referrer_id:
@@ -1621,6 +1682,88 @@ async def check_yookassa_invoices():
     except Exception as e:
         logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
 
+
+
+async def auto_renew_subscriptions():
+    """Фоновая задача: автоматическое продление подписок через ЮKassa."""
+    if not yookassa_enabled:
+        return
+
+    users = db.get_users_for_auto_renew()
+    if not users:
+        return
+
+    from yookassa import Payment as YKPayment
+    import uuid as _uuid
+
+    for user_id, method_id, days, sub_end_str in users:
+        if not days:
+            continue
+        prices_map = {30: 99, 90: 249, 365: 899}
+        price = prices_map.get(days, 99)
+        label = f"vpn_{user_id}_{days}"
+
+        try:
+            payment = YKPayment.create({
+                "amount": {"value": f"{price}.00", "currency": "RUB"},
+                "capture": True,
+                "payment_method_id": method_id,
+                "description": f"Автопродление GuepardVPN на {days} дней",
+                "metadata": {"label": label}
+            }, str(_uuid.uuid4()))
+
+            if payment.status == "succeeded":
+                logger.info(f"Автопродление {user_id}: успешно списано {price} руб")
+                db.mark_payment_processed(payment.id)
+                db.add_subscription(user_id, days)
+
+                # Обновляем ключ в панели
+                user_data = db.get_user(user_id)
+                if user_data:
+                    balance, sub_end, client_uuid = user_data
+                    if sub_end and client_uuid:
+                        dt = datetime.strptime(sub_end, "%Y-%m-%d %H:%M:%S")
+                        expiry_ms = int(dt.timestamp() * 1000)
+                        await panel_api.update_client_expiry(client_uuid, user_id, expiry_ms)
+
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"✅ <b>Подписка успешно продлена!</b>\n\n"
+                            f"С вашей карты списано <b>{price} руб</b>.\n"
+                            f"Подписка продлена на <b>{days} дней</b>.\n\n"
+                            f"Чтобы отключить автопродление, перейдите в 👤 Личный кабинет."
+                        ),
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+                        ]),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Не удалось отправить уведомление об автопродлении {user_id}: {e}")
+
+            elif payment.status == "canceled":
+                logger.warning(f"Автопродление {user_id}: платёж отклонён")
+                db.set_auto_renew(user_id, False)
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            "⚠️ <b>Не удалось продлить подписку автоматически.</b>\n\n"
+                            "Банк отклонил списание с карты. Автопродление отключено.\n\n"
+                            "Пожалуйста, оплатите подписку вручную, чтобы не потерять доступ к VPN."
+                        ),
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="💳 Оплатить вручную", callback_data="menu_tariffs")]
+                        ]),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Не удалось отправить уведомление об ошибке автопродления {user_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Ошибка автопродления для {user_id}: {e}")
 
 
 async def check_cryptopay_invoices():
@@ -1717,6 +1860,7 @@ async def main():
     scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
     scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=30)
+    scheduler.add_job(auto_renew_subscriptions, trigger='interval', hours=1)
     scheduler.start()
 
     try:
