@@ -363,7 +363,7 @@ async def cmd_start(message: Message, state: FSMContext):
                                 label = f"vpn_{message.from_user.id}_{days}"
                                 payment = YKPayment.create({
                                     "amount": {"value": f"{price}.00", "currency": "RUB"},
-                                    "confirmation": {"type": "redirect", "return_url": "https://t.me/guepard_vpn_bot"},
+                                    "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
                                     "capture": True,
                                     "description": f"Подписка GuepardVPN на {days} дней",
                                     "metadata": {"label": label}
