@@ -173,10 +173,10 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
     ])
     #if has_payment_method:
     if auto_renew:
-        keyboard.append([InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)", callback_data="toggle_auto_renew")])
+        keyboard.append([InlineKeyboardButton(text="Отключить автопродление", callback_data="toggle_auto_renew")])
     else:
-        keyboard.append([InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)", callback_data="toggle_auto_renew")])
-    keyboard.append([InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")])
+        keyboard.append([InlineKeyboardButton(text="Включить автопродление", callback_data="toggle_auto_renew")])
+    keyboard.append([InlineKeyboardButton(text="Назад", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_kb():
@@ -768,10 +768,10 @@ async def process_gift_recipient(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "menu_tariffs")
 async def process_tariffs(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.update_data(gift_recipient_id=None)
     text = "💎 <b>Выберите подходящий тариф:</b>\n\nЧем дольше период, тем выгоднее цена."
     await safe_edit(callback.message, text, reply_markup=get_tariffs_kb(callback.from_user.id), parse_mode="HTML")
-    await callback.answer()
 
 
 @dp.callback_query(F.data == "menu_docs")
@@ -989,7 +989,8 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
     try:
         import uuid as _uuid
         from yookassa import Payment as YKPayment
-        payment = YKPayment.create({
+        # Синхронный вызов -> в поток
+        payment = await asyncio.to_thread(YKPayment.create, {
             "amount": {"value": f"{price}.00", "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
             "capture": True,
@@ -997,6 +998,10 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
             "description": f"Подписка GuepardVPN на {days} дней",
             "metadata": {"label": label}
         }, str(_uuid.uuid4()))
+
+        if not payment or not hasattr(payment, 'confirmation'):
+             await callback.answer("Ошибка связи с платежной системой.", show_alert=True)
+             return
 
         url = payment.confirmation.confirmation_url
 
@@ -1122,6 +1127,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @dp.callback_query(F.data == "menu_profile")
 async def process_profile(callback: CallbackQuery):
+    await callback.answer()
     user_data = db.get_user(callback.from_user.id)
     sub_end_date_str = user_data[1] if user_data else None
     client_uuid = user_data[2] if user_data else None
@@ -1157,11 +1163,19 @@ async def process_profile(callback: CallbackQuery):
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     auto_renew_line = ""
-    if saved_pm:
-        if auto_renew_flag:
-            auto_renew_line = "\n🔄 <b>Автопродление: включено</b>"
-        else:
-            auto_renew_line = "\n🔕 <b>Автопродление: выключено</b>"
+    #if saved_pm:
+    if auto_renew_flag:
+        auto_renew_line = (
+            "\n\nАвтоматическая подписка подключена ✅\n(Рекуррентные платежи включены)\n\n"
+            "Это означает, что по окончанию подписки, стоимость подписки на следующий месяц списывается автоматически.\n"
+            "❗ Если вы хотите прекратить автоматическую подписку нажмите кнопку «Отключить»."
+        )
+    else:
+        auto_renew_line = (
+            "\n\nАвтоматическая подписка отключена ❌\n(Рекуррентные платежи)\n\n"
+            "Это означает, что сейчас у Бота нет возможности автоматически списывать стоимость подписки каждый месяц.\n"
+            "❗ Для того, чтобы включить автоматические платежи нажмите кнопку «Включить»."
+        )
 
     text = (
         f"👤 <b>Личный кабинет</b>\n\n"
@@ -1169,13 +1183,11 @@ async def process_profile(callback: CallbackQuery):
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ"
-        f"{auto_renew_line}\n\n"
+        f"<b>{auto_renew_line}</b>\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
     await safe_edit(callback.message, text, reply_markup=get_profile_kb(sub_link, auto_renew_flag, bool(saved_pm)), parse_mode="HTML")
-    await callback.answer()
-
 
 @dp.callback_query(F.data == "toggle_auto_renew")
 async def process_toggle_auto_renew(callback: CallbackQuery):
@@ -1183,7 +1195,12 @@ async def process_toggle_auto_renew(callback: CallbackQuery):
     auto_renew_flag, saved_pm = db.get_auto_renew(user_id)
 
     if not saved_pm:
-        await callback.answer("Автопродление доступно только после оплаты картой через ЮKassa.", show_alert=True)
+        # ВРЕМЕННАЯ ЗАГЛУШКА: Просто переключаем флаг для теста UI, так как рекуррентные платежи не одобрены в ЮKassa
+        new_state = not auto_renew_flag
+        db.set_auto_renew(user_id, new_state)
+        state_text = "включено ✅" if new_state else "выключено 🔕"
+        await callback.answer(f"Тестовый режим: Автопродление {state_text}", show_alert=True)
+        await process_profile(callback)
         return
 
     new_state = not auto_renew_flag
@@ -1608,7 +1625,11 @@ async def check_yookassa_invoices():
     try:
         from yookassa import Payment as YKPayment
         # Получаем последние succeeded-платежи (limit 100)
-        payments_list = YKPayment.list({"status": "succeeded", "limit": 100})
+        # ВАЖНО: yookassa SDK синхронный, запускаем в потоке
+        payments_list = await asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100})
+
+        if not payments_list or not hasattr(payments_list, 'items'):
+             return
 
         for payment in payments_list.items:
             payment_id = payment.id
@@ -1706,7 +1727,8 @@ async def auto_renew_subscriptions():
         label = f"vpn_{user_id}_{days}"
 
         try:
-            payment = YKPayment.create({
+            # ЮKassa синхронная, запускаем в потоке
+            payment = await asyncio.to_thread(YKPayment.create, {
                 "amount": {"value": f"{price}.00", "currency": "RUB"},
                 "capture": True,
                 "payment_method_id": method_id,
@@ -1775,7 +1797,8 @@ async def check_cryptopay_invoices():
         
     try:
         # Получаем все инвойсы со статусом 'paid'
-        invoices = await cryptopay.get_invoices(status="paid")
+        # Добавляем таймаут, чтобы избежать зависания задачи
+        invoices = await asyncio.wait_for(cryptopay.get_invoices(status="paid"), timeout=15)
         if not invoices:
             return
         for inv in invoices:
