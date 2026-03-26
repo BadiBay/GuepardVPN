@@ -36,12 +36,25 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CRYPTOPAY_TOKEN = os.getenv("CRYPTOPAY_TOKEN")
-YOOKASSA_PROVIDER_TOKEN = os.getenv("YOOKASSA_PROVIDER_TOKEN", "")
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 admin_ids_str = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
 
 # Инициализация CryptoPay
 cryptopay = None
+
+# Инициализация ЮKassa
+yookassa_enabled = False
+if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+    try:
+        from yookassa import Configuration, Payment as YKPayment
+        Configuration.account_id = YOOKASSA_SHOP_ID
+        Configuration.secret_key = YOOKASSA_SECRET_KEY
+        yookassa_enabled = True
+        logger.info("YooKassa initialized successfully")
+    except Exception as e:
+        logger.error(f"YooKassa init error: {e}")
 
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
@@ -338,22 +351,37 @@ async def cmd_start(message: Message, state: FSMContext):
                         return
                         
                     elif method == "yoomoney":
-                        if not YOOKASSA_PROVIDER_TOKEN:
+                        if not yookassa_enabled:
                             await message.answer("Оплата картой временно недоступна.")
                             return
-                        prices_map = {30: 9900, 90: 24900, 365: 89900}
+                        prices_map = {30: 99, 90: 249, 365: 899}
                         price = prices_map.get(days, 0)
                         if price:
-                            payload = f"vpn_{message.from_user.id}_{days}"
-                            await bot.send_invoice(
-                                chat_id=message.chat.id,
-                                title=f"Подписка GuepardVPN на {days} дней",
-                                description="Безлимитный трафик, высокая скорость и надёжная защита.",
-                                payload=payload,
-                                provider_token=YOOKASSA_PROVIDER_TOKEN,
-                                currency="RUB",
-                                prices=[LabeledPrice(label=f"Подписка {days} дней", amount=price)]
-                            )
+                            try:
+                                import uuid as _uuid
+                                from yookassa import Payment as YKPayment
+                                label = f"vpn_{message.from_user.id}_{days}"
+                                payment = YKPayment.create({
+                                    "amount": {"value": f"{price}.00", "currency": "RUB"},
+                                    "confirmation": {"type": "redirect", "return_url": "https://t.me/guepard_vpn_bot"},
+                                    "capture": True,
+                                    "description": f"Подписка GuepardVPN на {days} дней",
+                                    "metadata": {"label": label}
+                                }, str(_uuid.uuid4()))
+                                url = payment.confirmation.confirmation_url
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="💳 Оплатить (ЮKassa)", url=url)]
+                                ])
+                                await message.answer(
+                                    f"🧾 <b>Счет на оплату (Банковская карта / СБП)</b>\n\n"
+                                    f"Тариф: <b>{days} дней</b>\n"
+                                    f"Сумма: <b>{price} руб</b>\n\n"
+                                    f"Нажмите кнопку ниже для безопасной оплаты. После успешной оплаты подписка активируется автоматически в течение минуты.",
+                                    reply_markup=kb, parse_mode="HTML"
+                                )
+                            except Exception as e:
+                                logger.error(f"ЮKassa error in start link: {e}")
+                                await message.answer("Ошибка создания платежа.")
                         return
                         
                     elif method == "crypto":
@@ -926,18 +954,18 @@ async def process_select_tariff(callback: CallbackQuery):
     await callback.answer()
 
 
-# Обработка нажатия на тариф ЮKassa (Native Telegram Payment)
+# Обработка нажатия на тариф ЮKassa
 @dp.callback_query(F.data.startswith("buy_yoomoney_"))
 async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
-    if not YOOKASSA_PROVIDER_TOKEN:
-        await callback.answer("Оплата картой временно недоступна. Обратитесь к администратору.", show_alert=True)
+    if not yookassa_enabled:
+        await callback.answer("Оплата картой временно недоступна. Пожалуйста, обратитесь к администратору.", show_alert=True)
         return
 
     days = int(callback.data.split("_")[2])
     prices_map = {
-        30: 9900,
-        90: 24900,
-        365: 89900
+        30: 99,
+        90: 249,
+        365: 899
     }
     price = prices_map.get(days, 0)
 
@@ -948,19 +976,39 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     recipient_id = data.get("gift_recipient_id")
     if recipient_id:
-        payload = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+        label = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
     else:
-        payload = f"vpn_{callback.from_user.id}_{days}"
+        label = f"vpn_{callback.from_user.id}_{days}"
 
-    await bot.send_invoice(
-        chat_id=callback.message.chat.id,
-        title=f"Подписка GuepardVPN на {days} дней",
-        description="Безлимитный трафик, высокая скорость и надёжная защита данных.",
-        payload=payload,
-        provider_token=YOOKASSA_PROVIDER_TOKEN,
-        currency="RUB",
-        prices=[LabeledPrice(label=f"Подписка {days} дней", amount=price)]
-    )
+    try:
+        import uuid as _uuid
+        from yookassa import Payment as YKPayment
+        payment = YKPayment.create({
+            "amount": {"value": f"{price}.00", "currency": "RUB"},
+            "confirmation": {"type": "redirect", "return_url": "https://t.me/guepard_vpn_bot"},
+            "capture": True,
+            "description": f"Подписка GuepardVPN на {days} дней",
+            "metadata": {"label": label}
+        }, str(_uuid.uuid4()))
+
+        url = payment.confirmation.confirmation_url
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Оплатить (ЮKassa)", url=url)],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_tariffs")]
+        ])
+
+        await callback.message.edit_text(
+            f"🧾 <b>Счет на оплату (Банковская карта / СБП)</b>\n\n"
+            f"Тариф: <b>{days} дней</b>\n"
+            f"Сумма: <b>{price} руб</b>\n\n"
+            f"Нажмите кнопку ниже для безопасной оплаты. После успешной оплаты подписка активируется автоматически в течение минуты.",
+            reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка создания платежа ЮKassa: {e}")
+        await callback.answer("Ошибка создания платежа.", show_alert=True)
+
     await callback.answer()
 
 
@@ -1499,77 +1547,79 @@ async def check_expired_24h_ago():
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление 24h {user_id}: {e}")
 
-# Подтверждение платежа (работает и для ЮKassa, и для Stars)
-@dp.pre_checkout_query()
-async def process_pre_checkout(query: PreCheckoutQuery):
-    await query.answer(ok=True)
-
-
-# Обработка успешной оплаты (Stars И ЮKassa)
-@dp.message(F.successful_payment)
-async def process_successful_payment(message: Message, state: FSMContext):
-    payload = message.successful_payment.invoice_payload
-    parts = payload.split("_")
-    
-    is_gift = False
-    giver_username = None
-    user_id = message.from_user.id
-    days = 0
+async def check_yookassa_invoices():
+    """Фоновая задача: проверка статуса платежей ЮKassa"""
+    if not yookassa_enabled:
+        return
 
     try:
-        if parts[1] == "gift" and len(parts) == 5:
-            user_id = int(parts[2])
-            days = int(parts[3])
-            buyer_id = int(parts[4])
-            is_gift = True
-            giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
-            try:
-                await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на <b>{days} дней</b>!", parse_mode="HTML")
-            except Exception:
-                pass
-        elif parts[0] == "vpn" and parts[1] == "sub" and len(parts) == 3:
-            # Stars: payload = vpn_sub_30
-            days = int(parts[2])
-        elif len(parts) == 3:
-            # YooKassa: payload = vpn_<user_id>_30
-            user_id = int(parts[1])
-            days = int(parts[2])
-        
-        if not days:
-            logger.error(f"Неверный payload: {payload}")
-            return
+        from yookassa import Payment as YKPayment
+        # Получаем последние succeeded-платежи (limit 100)
+        payments_list = YKPayment.list({"status": "succeeded", "limit": 100})
 
-        logger.info(f"Оплата через Telegram: payload={payload}, user={message.from_user.id}")
+        for payment in payments_list.items:
+            payment_id = payment.id
 
-        # Выдаем подписку
-        db.add_subscription(user_id, days)
+            if db.is_payment_processed(payment_id):
+                continue
 
-        # Рефералка
-        referrer_id = db.get_referrer(user_id)
-        if referrer_id:
-            db.add_subscription(referrer_id, 3)
-            try:
-                await bot.send_message(
-                    chat_id=referrer_id,
-                    text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+3 бонусных дня</b>!",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
+            metadata = payment.metadata or {}
+            label = metadata.get("label", "")
 
-        # Ключ
-        user_data = db.get_user(user_id)
-        client_uuid = user_data[2] if user_data else None
-        if not client_uuid:
-            new_uuid = await panel_api.add_client(user_id)
-            if new_uuid:
-                db.update_uuid(user_id, new_uuid)
+            if not label or not label.startswith("vpn_"):
+                continue
 
-        await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
-        await state.clear()
+            parts = label.split("_")
+            is_gift = False
+            giver_username = None
+
+            if parts[1] == "gift" and len(parts) == 5:
+                user_id = int(parts[2])
+                days = int(parts[3])
+                buyer_id = int(parts[4])
+                is_gift = True
+                giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+                try:
+                    await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
+                except:
+                    pass
+            elif len(parts) == 3:
+                user_id = int(parts[1])
+                days = int(parts[2])
+            else:
+                continue
+
+            logger.info(f"Найден оплаченный платеж ЮKassa {payment_id}: {payment.amount.value} руб от {user_id}")
+            db.mark_payment_processed(payment_id)
+
+            # Выдаем подписку
+            db.add_subscription(user_id, days)
+
+            # Рефералка
+            referrer_id = db.get_referrer(user_id)
+            if referrer_id:
+                db.add_subscription(referrer_id, 3)
+                try:
+                    await bot.send_message(
+                        chat_id=referrer_id,
+                        text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+3 бонусных дня</b>!",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+            # Ключ
+            user_data = db.get_user(user_id)
+            client_uuid = user_data[2] if user_data else None
+            if not client_uuid:
+                new_uuid = await panel_api.add_client(user_id)
+                if new_uuid:
+                    db.update_uuid(user_id, new_uuid)
+
+            await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки successful_payment: {e}")
+        logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
 
 
 
@@ -1666,7 +1716,7 @@ async def main():
     scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
     scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
-    # YooKassa job no longer needed - handled by successful_payment event
+    scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=30)
     scheduler.start()
 
     try:
