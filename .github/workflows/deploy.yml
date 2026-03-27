@@ -18,8 +18,14 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
 
-          # Заходим на сервер, качаем только обновления и пересобираем Докер
           script: |
             cd /root/VPN
+            
+            # 1. Даем серверу временный пропуск для скачивания (без ввода паролей)
+            git remote set-url origin https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            
+            # 2. Скачиваем обновления
             git pull origin main
-            docker-compose up -d --build --remove-orphans
+            
+            # 3. Пересобираем Докер (команда через пробел!)
+            docker compose up -d --build --remove-orphans
