@@ -21,11 +21,8 @@ jobs:
           script: |
             cd /root/VPN
             
-            # 1. Даем серверу временный пропуск для скачивания (без ввода паролей)
-            git remote set-url origin https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            # 1. Используем наш новый личный токен
+            git remote set-url origin https://${{ github.actor }}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
             
-            # 2. Скачиваем обновления
-            git pull origin main
-            
-            # 3. Пересобираем Докер (команда через пробел!)
-            docker compose up -d --build --remove-orphans
+            # 2. Качаем код И (&&) запускаем Докер ТОЛЬКО если скачивание прошло без ошибок
+            git pull origin main && docker compose up -d --build --remove-orphans
