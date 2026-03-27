@@ -1796,39 +1796,51 @@ async def auto_renew_subscriptions():
                         expiry_ms = int(dt.timestamp() * 1000)
                         await panel_api.update_client_expiry(client_uuid, user_id, expiry_ms)
 
+                from aiogram.types import FSInputFile
+                import os
+                
+                success_text = (
+                    f"✅ <b>Подписка успешно продлена!</b>\n\n"
+                    f"С вашей карты списано <b>{price} руб</b>.\n"
+                    f"Подписка продлена на <b>{days} дней</b>.\n\n"
+                    f"Чтобы отключить автопродление, перейдите в 👤 Личный кабинет."
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+                ])
+                
+                image_path = "Подписка куплена.png"
                 try:
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"✅ <b>Подписка успешно продлена!</b>\n\n"
-                            f"С вашей карты списано <b>{price} руб</b>.\n"
-                            f"Подписка продлена на <b>{days} дней</b>.\n\n"
-                            f"Чтобы отключить автопродление, перейдите в 👤 Личный кабинет."
-                        ),
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
-                        ]),
-                        parse_mode="HTML"
-                    )
+                    if os.path.exists(image_path):
+                        photo = FSInputFile(image_path)
+                        await bot.send_photo(chat_id=user_id, photo=photo, caption=success_text, reply_markup=kb, parse_mode="HTML")
+                    else:
+                        await bot.send_message(chat_id=user_id, text=success_text, reply_markup=kb, parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"Не удалось отправить уведомление об автопродлении {user_id}: {e}")
 
             elif payment.status == "canceled":
                 logger.warning(f"Автопродление {user_id}: платёж отклонён")
                 db.set_auto_renew(user_id, False)
+                from aiogram.types import FSInputFile
+                import os
+                
+                fail_text = (
+                    "⚠️ <b>Не удалось продлить подписку автоматически.</b>\n\n"
+                    "Банк отклонил списание с карты. Автопродление отключено.\n\n"
+                    "Пожалуйста, оплатите подписку вручную, чтобы не потерять доступ к VPN."
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 Оплатить вручную", callback_data="menu_tariffs")]
+                ])
+                
+                image_path = "Оплата не прошла.png"
                 try:
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            "⚠️ <b>Не удалось продлить подписку автоматически.</b>\n\n"
-                            "Банк отклонил списание с карты. Автопродление отключено.\n\n"
-                            "Пожалуйста, оплатите подписку вручную, чтобы не потерять доступ к VPN."
-                        ),
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="💳 Оплатить вручную", callback_data="menu_tariffs")]
-                        ]),
-                        parse_mode="HTML"
-                    )
+                    if os.path.exists(image_path):
+                        photo = FSInputFile(image_path)
+                        await bot.send_photo(chat_id=user_id, photo=photo, caption=fail_text, reply_markup=kb, parse_mode="HTML")
+                    else:
+                        await bot.send_message(chat_id=user_id, text=fail_text, reply_markup=kb, parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"Не удалось отправить уведомление об ошибке автопродления {user_id}: {e}")
 
@@ -1929,9 +1941,9 @@ async def main():
     scheduler.add_job(check_expired_subscriptions, trigger='interval', hours=1)
     scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
     scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
-    scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
-    scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=30)
-    scheduler.add_job(auto_renew_subscriptions, trigger='interval', seconds=30)
+    scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=30)
+    scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=15)
+    scheduler.add_job(auto_renew_subscriptions, trigger='interval', hours=1)
     scheduler.start()
 
     try:
