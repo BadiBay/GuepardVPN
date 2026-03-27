@@ -173,9 +173,8 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
     ])
     #if has_payment_method:
     if auto_renew:
-        keyboard.append([InlineKeyboardButton(text="Отключить автопродление❌", callback_data="toggle_auto_renew")])
-    else:
-        keyboard.append([InlineKeyboardButton(text="Включить автопродление✅", callback_data="toggle_auto_renew")])
+        keyboard.append([InlineKeyboardButton(text="Отключить автопродление ❌", callback_data="toggle_auto_renew")])
+    
     keyboard.append([InlineKeyboardButton(text="Назад", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -1055,7 +1054,7 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
             "amount": {"value": f"{price}.00", "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
             "capture": True,
-            #"save_payment_method": True,
+            "save_payment_method": True,
             "description": f"Подписка GuepardVPN на {days} дней",
             "metadata": {"label": label}
         }, str(_uuid.uuid4()))
@@ -1223,28 +1222,12 @@ async def process_profile(callback: CallbackQuery):
                     sub_link = f"{panel_api.PANEL_URL}{sub_link}"
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
-    auto_renew_line = ""
-    #if saved_pm:
-    if auto_renew_flag:
-        auto_renew_line = (
-            "\n\nАвтопродление подписки подключено ✅\n(Рекуррентные платежи включены)\n\n"
-            "Это означает, что по окончанию подписки, стоимость подписки на следующий период списывается автоматически.\n"
-            "❗ Если вы хотите прекратить автоматическую подписку нажмите кнопку «Отключить автопродление»."
-        )
-    else:
-        auto_renew_line = (
-            "\n\nАвтопродление подписки отключено ❌\n(Рекуррентные платежи выключены)\n\n"
-            "Это означает, что сейчас у Бота нет возможности автоматически списывать стоимость подписки каждый период.\n"
-            "❗ Для того, чтобы включить автоматические платежи нажмите кнопку «Включить автопродление»."
-        )
-
     text = (
         f"👤 <b>Личный кабинет</b>\n\n"
         f"ID: <code>{callback.from_user.id}</code>\n\n"
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ"
-        f"<b>{auto_renew_line}</b>\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
@@ -1255,22 +1238,13 @@ async def process_toggle_auto_renew(callback: CallbackQuery):
     user_id = callback.from_user.id
     auto_renew_flag, saved_pm = db.get_auto_renew(user_id)
 
-    if not saved_pm:
-        # ВРЕМЕННАЯ ЗАГЛУШКА: Просто переключаем флаг для теста UI, так как рекуррентные платежи не одобрены в ЮKassa
-        new_state = not auto_renew_flag
-        db.set_auto_renew(user_id, new_state)
-        state_text = "включено ✅" if new_state else "выключено 🔕"
-        await callback.answer(f"Тестовый режим: Автопродление {state_text}", show_alert=True)
-        await process_profile(callback)
+    if not auto_renew_flag:
+        await callback.answer("Автопродление будет включено автоматически при следующей оплате через ЮKassa.", show_alert=True)
         return
 
-    new_state = not auto_renew_flag
-    db.set_auto_renew(user_id, new_state)
-
-    state_text = "включено ✅" if new_state else "выключено 🔕"
-    await callback.answer(f"Автопродление {state_text}", show_alert=True)
-
-    # Обновляем профиль
+    # Отключаем автопродление
+    db.set_auto_renew(user_id, False)
+    await callback.answer("Автопродление отключено. Вы можете включить его снова при следующей оплате.", show_alert=True)
     await process_profile(callback)
 
 
@@ -1637,15 +1611,14 @@ async def check_expiring_soon():
                 )
                 text = f"{notify_text}{renewal_note}"
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
-                     [InlineKeyboardButton(text="🔄 Автопродление: ВКЛ (отключить)",callback_data="toggle_auto_renew")]]
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")],
+                    [InlineKeyboardButton(text="Отключить автопродление ❌", callback_data="toggle_auto_renew")]
                 ])
             else:
                 text = f"{notify_text}\n\nПожалуйста, продлите подписку заранее, чтобы не потерять доступ к VPN."
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs"),
-                     [InlineKeyboardButton(text="🔕 Автопродление: ВЫКЛ (включить)",callback_data="toggle_auto_renew")]
-                     ]
+                    [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="menu_tariffs")],
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
                 ])
 
             try:
