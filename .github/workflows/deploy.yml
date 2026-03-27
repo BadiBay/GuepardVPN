@@ -21,16 +21,19 @@ jobs:
           script: |
             cd /root/VPN
             
-            # 1. Привязываем новую ссылку с вашим новым токеном
-            git remote set-url origin https://${{ github.actor }}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
+            # 1. Настраиваем чистый URL (на случай если там застрял старый токен)
+            git remote set-url origin https://github.com/BadiBay/GuepardVPN.git
             
-            # 2. Очищаем любые кэши паролей Git на сервере (чтобы они не мешали)
-            git config --system --unset credential.helper || true
-            git config --global --unset credential.helper || true
+            # 2. Передаем токен через заголовок (самый стабильный метод)
+            # Мы кодируем токен в base64 и передаем его в конфиг на время сессии
+            git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n x-access-token:${{ secrets.GH_TOKEN }} | base64)"
             
-            # 3. Жестко скачиваем свежий код и заменяем им файлы на сервере
-            git fetch origin
+            # 3. Обновляем код
+            git fetch origin main
             git reset --hard origin/main
             
-            # 4. Пересобираем Докер
+            # 4. Очищаем заголовок после использования (безопасность)
+            git config --local --unset http.https://github.com/.extraheader
+            
+            # 5. Перезапуск контейнеров
             docker compose up -d --build --remove-orphans
