@@ -354,7 +354,7 @@ async def cmd_start(message: Message, state: FSMContext):
                             prices=[LabeledPrice(label="VPN Подписка", amount=price)]
                         )
                         return
-                        
+
                     elif method == "yoomoney":
                         if not yookassa_enabled:
                             await message.answer("Оплата картой временно недоступна.")
