@@ -6,3 +6,4 @@ app.log
 .idea/
 cloudflared-windows-amd64.exe
 ngrok.exe
+/.venv/
