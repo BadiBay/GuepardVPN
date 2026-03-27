@@ -1931,7 +1931,7 @@ async def main():
     scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=15)
     scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=30)
-    scheduler.add_job(auto_renew_subscriptions, trigger='interval', hours=1)
+    scheduler.add_job(auto_renew_subscriptions, trigger='interval', seconds=30)
     scheduler.start()
 
     try:
