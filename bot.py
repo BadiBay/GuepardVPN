@@ -168,13 +168,14 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
     keyboard.extend([
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
         [InlineKeyboardButton(text="💳 Оплатить VPN", callback_data="menu_tariffs")],
+    ])
+    # if has_payment_method:
+    if auto_renew:
+        keyboard.append([InlineKeyboardButton(text="Отключить автопродление", callback_data="toggle_auto_renew")])
+    keyboard.extend([
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="gift_sub_start")],
         [InlineKeyboardButton(text="🤝 Партнерская программа", callback_data="menu_referral")],
     ])
-    #if has_payment_method:
-    if auto_renew:
-        keyboard.append([InlineKeyboardButton(text="Отключить автопродление ❌", callback_data="toggle_auto_renew")])
-    
     keyboard.append([InlineKeyboardButton(text="Назад", callback_data="menu_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
