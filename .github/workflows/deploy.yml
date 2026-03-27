@@ -21,5 +21,16 @@ jobs:
           script: |
             cd /root/VPN
             
-            # Скачиваем код (логин:токен) И (&&) собираем Докер строго в одну строку
-            git pull https://${{ github.actor }}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git main && docker compose up -d --build --remove-orphans
+            # 1. Привязываем новую ссылку с вашим новым токеном
+            git remote set-url origin https://${{ github.actor }}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
+            
+            # 2. Очищаем любые кэши паролей Git на сервере (чтобы они не мешали)
+            git config --system --unset credential.helper || true
+            git config --global --unset credential.helper || true
+            
+            # 3. Жестко скачиваем свежий код и заменяем им файлы на сервере
+            git fetch origin
+            git reset --hard origin/main
+            
+            # 4. Пересобираем Докер
+            docker compose up -d --build --remove-orphans
