@@ -370,7 +370,7 @@ async def cmd_start(message: Message, state: FSMContext):
                                     "amount": {"value": f"{price}.00", "currency": "RUB"},
                                     "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
                                     "capture": True,
-                                    #"save_payment_method": True,
+                                    "save_payment_method": True,
                                     "description": f"Подписка GuepardVPN на {days} дней",
                                     "metadata": {"label": label}
                                 }, str(_uuid.uuid4()))
@@ -1227,7 +1227,7 @@ async def process_profile(callback: CallbackQuery):
         f"ID: <code>{callback.from_user.id}</code>\n\n"
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
-        f"Использовано трафика: {used_gb} ГБ"
+        f"Использовано трафика: {used_gb} ГБ\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
@@ -1656,13 +1656,18 @@ async def check_yookassa_invoices():
     if not yookassa_enabled:
         return
 
+    logger.info("Запуск проверки платежей ЮKassa...")
     try:
         from yookassa import Payment as YKPayment
         # Получаем последние succeeded-платежи (limit 100)
-        # ВАЖНО: yookassa SDK синхронный, запускаем в потоке
-        payments_list = await asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100})
+        # Добавляем таймаут 20 сек, чтобы задача не зависала
+        payments_list = await asyncio.wait_for(
+            asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100}),
+            timeout=20
+        )
 
         if not payments_list or not hasattr(payments_list, 'items'):
+             logger.info("Платежи ЮKassa не найдены.")
              return
 
         for payment in payments_list.items:
@@ -1735,7 +1740,9 @@ async def check_yookassa_invoices():
                     db.update_uuid(user_id, new_uuid)
 
             await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
-
+        logger.info("Проверка платежей ЮKassa завершена.")
+    except asyncio.TimeoutError:
+        logger.error("Таймаут при запросе к API ЮKassa в check_yookassa_invoices")
     except Exception as e:
         logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
 
@@ -1746,8 +1753,10 @@ async def auto_renew_subscriptions():
     if not yookassa_enabled:
         return
 
+    logger.info("Запуск задачи автопродления подписок...")
     users = db.get_users_for_auto_renew()
     if not users:
+        logger.info("Нет пользователей для автопродления.")
         return
 
     from yookassa import Payment as YKPayment
@@ -1761,14 +1770,17 @@ async def auto_renew_subscriptions():
         label = f"vpn_{user_id}_{days}"
 
         try:
-            # ЮKassa синхронная, запускаем в потоке
-            payment = await asyncio.to_thread(YKPayment.create, {
-                "amount": {"value": f"{price}.00", "currency": "RUB"},
-                "capture": True,
-                "payment_method_id": method_id,
-                "description": f"Автопродление GuepardVPN на {days} дней",
-                "metadata": {"label": label}
-            }, str(_uuid.uuid4()))
+            # ЮKassa синхронная, запускаем в потоке с таймаутом
+            payment = await asyncio.wait_for(
+                asyncio.to_thread(YKPayment.create, {
+                    "amount": {"value": f"{price}.00", "currency": "RUB"},
+                    "capture": True,
+                    "payment_method_id": method_id,
+                    "description": f"Автопродление GuepardVPN на {days} дней",
+                    "metadata": {"label": label}
+                }, str(_uuid.uuid4())),
+                timeout=20
+            )
 
             if payment.status == "succeeded":
                 logger.info(f"Автопродление {user_id}: успешно списано {price} руб")
