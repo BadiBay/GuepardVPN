@@ -404,3 +404,10 @@ def delete_user_device(device_id: int) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+def clear_user_devices(telegram_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_devices WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()

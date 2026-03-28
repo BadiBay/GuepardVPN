@@ -212,6 +212,17 @@ async def handle_sub_request(request: web.Request):
             
             if not device_exists and device_count >= 3:
                 logger.warning(f"Device limit exceeded for User {telegram_id}")
+                
+                # Уведомляем пользователя
+                asyncio.create_task(
+                    bot.send_message(
+                        chat_id=telegram_id,
+                        text="⚠️ <b>Внимание! При попытке подключиться достигнут лимит устройств.</b>\n\nВы пытаетесь использовать конфигурацию на 4-ом устройстве, но максимальное количество — 3.\nПожалуйста, удалите старые устройства (если нужно, переустановите подписку).",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Управление устройствами", callback_data="menu_devices")]]),
+                        parse_mode="HTML"
+                    )
+                )
+                
                 dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
                 encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
                 return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
@@ -1337,6 +1348,7 @@ async def process_profile(callback: CallbackQuery):
     key_text = "<i>(появится после оплаты)</i>"
     used_gb = 0.0
     sub_link = None
+    device_count = db.get_device_count(callback.from_user.id)
 
     if sub_end_date_str:
         sub_end_date = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
@@ -1369,7 +1381,8 @@ async def process_profile(callback: CallbackQuery):
         f"ID: <code>{callback.from_user.id}</code>\n\n"
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
-        f"Использовано трафика: {used_gb} ГБ\n\n"
+        f"Использовано трафика: {used_gb} ГБ\n"
+        f"📱 Устройства: {device_count}/3\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
@@ -1429,8 +1442,21 @@ async def process_devices(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("del_dev_"))
 async def process_delete_device(callback: CallbackQuery):
     dev_id = int(callback.data.split("_")[2])
+    telegram_id = callback.from_user.id
     if db.delete_user_device(dev_id):
-        await callback.answer("✅ Устройство удалено!", show_alert=True)
+        new_sub_url = await panel_api.clear_client_ips(telegram_id)
+        if new_sub_url:
+            db.update_uuid(telegram_id, new_sub_url)
+        await callback.answer("✅ Устройство удалено! Ключ подписки изменён.", show_alert=True)
+        # Уведомляем пользователя о необходимости обновить ключ
+        try:
+            await bot.send_message(
+                chat_id=telegram_id,
+                text="🔄 <b>Ваш ключ подписки был изменен!</b>\n\nВ целях безопасности (чтобы удаленное устройство действительно потеряло доступ), мы обновили вашу ссылку на подписку.\n\n⚠️ <b>Пожалуйста, скопируйте новый ключ из Личного кабинета и обновите подписку во всех ваших приложениях VPN.</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
     else:
         await callback.answer("❌ Не найдено.", show_alert=True)
     await process_devices(callback)
@@ -1444,7 +1470,15 @@ async def process_reset_ips(callback: CallbackQuery):
 
     if new_sub_url:
         db.update_uuid(telegram_id, new_sub_url)
-        await callback.message.edit_text("✅ Сессии сброшены! Перейдите в кабинет, чтобы скопировать новую ссылку.", reply_markup=get_devices_kb())
+        db.clear_user_devices(telegram_id)
+        
+        await callback.message.edit_text(
+            "✅ <b>Сессии успешно сброшены! Все устройства удалены.</b>\n\n"
+            "🔄 <b>Ваш ключ подписки был изменен!</b>\n"
+            "Пожалуйста, скопируйте новую ссылку из Личного кабинета и обновите её в ваших VPN клиентах.", 
+            reply_markup=get_devices_kb(),
+            parse_mode="HTML"
+        )
         await callback.answer("✅ Сессии успешно сброшены!", show_alert=True)
     else:
         await callback.answer("❌ Ошибка сброса. Возможно, у вас нет активной подписки.", show_alert=True)
