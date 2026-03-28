@@ -163,13 +163,20 @@ def extract_hwid(request: web.Request) -> tuple[str, str, str, str]:
     return hwid, model, platform, user_agent
 
 async def handle_sub_request(request: web.Request):
-    uuid_path = request.match_info.get("uuid_path")
+    uuid_path = request.match_info.get("uuid_path", "")
+    full_path = request.path
+    logger.info(f"--- Incoming Proxy Request ---")
+    logger.info(f"Path: {full_path}")
+    logger.info(f"UUID Fragment: {uuid_path}")
+
     if not uuid_path:
+        logger.warning("Empty UUID fragment received")
         return web.Response(status=404, text="Not Found")
         
     import sqlite3
     conn = sqlite3.connect(db.DB_NAME)
     cursor = conn.cursor()
+    # Ищем по частичному совпадению или по полному пути
     cursor.execute("SELECT telegram_id, is_active FROM users WHERE uuid LIKE ?", (f"%{uuid_path}%",))
     user_row = cursor.fetchone()
     conn.close()
@@ -177,6 +184,7 @@ async def handle_sub_request(request: web.Request):
     telegram_id = user_row[0] if user_row else None
     
     if telegram_id:
+        logger.info(f"User identified: {telegram_id}")
         hwid, model, platform, ua = extract_hwid(request)
         device_count = db.get_device_count(telegram_id)
         
@@ -187,22 +195,35 @@ async def handle_sub_request(request: web.Request):
         conn.close()
         
         if not device_exists and device_count >= 3:
+            logger.warning(f"Device limit exceeded for User {telegram_id}")
             dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
             encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
             return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
             
         db.add_or_update_device(telegram_id, hwid, model, platform, ua)
+    else:
+        logger.info(f"User NOT found in DB for path: {uuid_path}")
 
-    target_url = f"{panel_api.PANEL_URL}/{uuid_path}"
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host']}
+    # Формируем целевой URL. 
+    # Если uuid_path уже содержит / в начале или PANEL_URL имеет слеш, убираем один
+    base_url = panel_api.PANEL_URL.rstrip('/')
+    clean_uuid = uuid_path.lstrip('/')
+    target_url = f"{base_url}/{clean_uuid}"
+    
+    logger.info(f"Forwarding to Panel: {target_url}")
+    
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host', 'connection']}
     
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(target_url, headers=headers) as resp:
                 content = await resp.read()
+                logger.info(f"Panel Response: {resp.status}")
                 return web.Response(body=content, status=resp.status, headers=resp.headers)
         except Exception as e:
+            logger.error(f"Proxy Forwarding Error: {e}")
             return web.Response(status=500, text=f"Gateway Error: {str(e)}")
+
 
 
 async def run_proxy_server():
