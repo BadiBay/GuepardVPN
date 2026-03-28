@@ -133,44 +133,71 @@ def extract_hwid(request: web.Request) -> tuple[str, str, str, str, bool]:
     x_device_model = request.headers.get("X-Device-Model", "Unknown")
     x_device_os = request.headers.get("X-Device-Os", "Unknown")
     
+    ua_lower = user_agent.lower()
+    
     # Список известных VPN-клиентов
     vpn_clients = ["v2rayNG", "v2raytun", "Shadowrocket", "V2Box", "Happ/", "Hiddify", "CFNetwork", "Darwin"]
-    is_vpn_client = any(client.lower() in user_agent.lower() for client in vpn_clients) or x_device_id
+    is_vpn_client = any(client.lower() in ua_lower for client in vpn_clients) or x_device_id
     
     # Список признаков браузера
     browser_keywords = ["Mozilla", "Chrome", "Safari", "Edge", "Opera", "YaBrowser"]
-    is_likely_browser = any(k.lower() in user_agent.lower() for k in browser_keywords)
+    is_likely_browser = any(k.lower() in ua_lower for k in browser_keywords)
     
     # Если это браузер и НЕ ЯВНЫЙ VPN-клиент, помечаем как браузер
     is_browser = is_likely_browser and not is_vpn_client
 
     if x_device_id:
         return x_device_id, x_device_model, x_device_os, user_agent, False
-        
-    if user_agent.startswith("Happ/") or "Hiddify" in user_agent:
-        parts = user_agent.split("/")
-        if len(parts) >= 4:
-            platform = parts[2]
-            hwid = parts[3]
-            model = "Hiddify Client"
-            return hwid, model, platform, user_agent, False
-            
+    
+    # По умолчанию
     hwid = user_agent[:100]
     model = "VPN Client"
     platform = "Unknown"
     
-    if "v2rayNG" in user_agent or "v2raytun" in user_agent.lower():
-        platform = "Android/iOS"
+    # 1. Попытка специфичного парсинга по форматам клиентов
+    if "v2raytun" in ua_lower:
         model = "v2rayTun"
-    elif "Shadowrocket" in user_agent:
-        platform = "iOS"
-        model = "Shadowrocket"
-    elif "V2Box" in user_agent:
-        platform = "iOS/macOS"
-        model = "V2Box"
-    elif "CFNetwork" in user_agent or "Darwin" in user_agent:
-        platform = "iOS/macOS"
+        # v2raytun/ios/1.0.0/uuid или v2raytun/android/...
+        parts = user_agent.split("/")
+        for p in parts:
+            pl = p.lower()
+            if pl == "ios": platform = "iOS"
+            elif pl == "android": platform = "Android"
+        if len(parts) >= 4:
+            hwid = parts[3]
+            
+    elif "hiddify" in ua_lower or "happ/" in ua_lower:
+        model = "Hiddify Client"
+        parts = user_agent.split("/")
+        if len(parts) >= 4:
+            platform = parts[2].capitalize()
+            hwid = parts[3]
+            
+    elif "v2rayng" in ua_lower:
+        model = "v2rayNG"
+        platform = "Android"
         
+    elif "shadowrocket" in ua_lower:
+        model = "Shadowrocket"
+        platform = "iOS"
+        
+    elif "v2box" in ua_lower:
+        model = "V2Box"
+        platform = "iOS"
+        
+    # 2. Если платформа все еще не определена, ищем по ключевым словам в UA
+    if platform == "Unknown":
+        if any(kw in ua_lower for kw in ["iphone", "ipad", "ipod", "ios"]):
+            platform = "iOS"
+        elif "android" in ua_lower:
+            platform = "Android"
+        elif "windows" in ua_lower:
+            platform = "Windows"
+        elif any(kw in ua_lower for kw in ["macintosh", "macos", "darwin", "cfnetwork"]):
+            platform = "macOS/iOS"
+        elif "linux" in ua_lower:
+            platform = "Linux"
+
     return hwid, model, platform, user_agent, is_browser
 
 
