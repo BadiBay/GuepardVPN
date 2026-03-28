@@ -127,14 +127,25 @@ db.init_db()
 
 
 # --- PROXY SERVER LOGIC ---
-def extract_hwid(request: web.Request) -> tuple[str, str, str, str]:
+def extract_hwid(request: web.Request) -> tuple[str, str, str, str, bool]:
     user_agent = request.headers.get("User-Agent", "Unknown")
     x_device_id = request.headers.get("X-Device-Id")
     x_device_model = request.headers.get("X-Device-Model", "Unknown")
     x_device_os = request.headers.get("X-Device-Os", "Unknown")
     
+    # Список известных VPN-клиентов
+    vpn_clients = ["v2rayNG", "v2raytun", "Shadowrocket", "V2Box", "Happ/", "Hiddify", "CFNetwork", "Darwin"]
+    is_vpn_client = any(client.lower() in user_agent.lower() for client in vpn_clients) or x_device_id
+    
+    # Список признаков браузера
+    browser_keywords = ["Mozilla", "Chrome", "Safari", "Edge", "Opera", "YaBrowser"]
+    is_likely_browser = any(k.lower() in user_agent.lower() for k in browser_keywords)
+    
+    # Если это браузер и НЕ ЯВНЫЙ VPN-клиент, помечаем как браузер
+    is_browser = is_likely_browser and not is_vpn_client
+
     if x_device_id:
-        return x_device_id, x_device_model, x_device_os, user_agent
+        return x_device_id, x_device_model, x_device_os, user_agent, False
         
     if user_agent.startswith("Happ/") or "Hiddify" in user_agent:
         parts = user_agent.split("/")
@@ -142,7 +153,7 @@ def extract_hwid(request: web.Request) -> tuple[str, str, str, str]:
             platform = parts[2]
             hwid = parts[3]
             model = "Hiddify Client"
-            return hwid, model, platform, user_agent
+            return hwid, model, platform, user_agent, False
             
     hwid = user_agent[:100]
     model = "VPN Client"
@@ -160,7 +171,8 @@ def extract_hwid(request: web.Request) -> tuple[str, str, str, str]:
     elif "CFNetwork" in user_agent or "Darwin" in user_agent:
         platform = "iOS/macOS"
         
-    return hwid, model, platform, user_agent
+    return hwid, model, platform, user_agent, is_browser
+
 
 async def handle_sub_request(request: web.Request):
     uuid_path = request.match_info.get("uuid_path", "")
@@ -185,24 +197,29 @@ async def handle_sub_request(request: web.Request):
     
     if telegram_id:
         logger.info(f"User identified: {telegram_id}")
-        hwid, model, platform, ua = extract_hwid(request)
-        device_count = db.get_device_count(telegram_id)
+        hwid, model, platform, ua, is_browser = extract_hwid(request)
         
-        conn = sqlite3.connect(db.DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM user_devices WHERE telegram_id = ? AND hwid = ?", (telegram_id, hwid))
-        device_exists = cursor.fetchone() is not None
-        conn.close()
-        
-        if not device_exists and device_count >= 3:
-            logger.warning(f"Device limit exceeded for User {telegram_id}")
-            dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
-            encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
-            return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
+        if is_browser:
+            logger.info(f"Browser detected for User {telegram_id}, skipping device tracking.")
+        else:
+            device_count = db.get_device_count(telegram_id)
             
-        db.add_or_update_device(telegram_id, hwid, model, platform, ua)
+            conn = sqlite3.connect(db.DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM user_devices WHERE telegram_id = ? AND hwid = ?", (telegram_id, hwid))
+            device_exists = cursor.fetchone() is not None
+            conn.close()
+            
+            if not device_exists and device_count >= 3:
+                logger.warning(f"Device limit exceeded for User {telegram_id}")
+                dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
+                encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
+                return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
+                
+            db.add_or_update_device(telegram_id, hwid, model, platform, ua)
     else:
         logger.info(f"User NOT found in DB for path: {uuid_path}")
+
 
     # Формируем целевой URL. 
     # Если uuid_path уже содержит / в начале или PANEL_URL имеет слеш, убираем один
