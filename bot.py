@@ -339,7 +339,7 @@ def get_admin_kb():
 
 def get_devices_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Сбросить сессии", callback_data="action_reset_ips")],
+        [InlineKeyboardButton(text="💥 Сбросить устройства (сменить ключ подписки)", callback_data="action_reset_ips")],
         [InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")]
     ])
 
@@ -1430,37 +1430,12 @@ async def process_devices(callback: CallbackQuery):
         text += f"🔄 Обновлено: {updated_at}\n"
         text += f"🔑 HWID: <code>{hwid}</code>\n\n"
         
-        keyboard.append([InlineKeyboardButton(text=f"🗑 Удалить устройство {i+1}", callback_data=f"del_dev_{dev_id}")])
-        
-    # keyboard.append([InlineKeyboardButton(text="🔄 Сбросить IP сессии (Marzban)", callback_data="action_reset_ips")])
+    keyboard.append([InlineKeyboardButton(text="💥 Сбросить устройства (сменить ключ подписки)", callback_data="action_reset_ips")])
     keyboard.append([InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")])
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
-
-@dp.callback_query(F.data.startswith("del_dev_"))
-async def process_delete_device(callback: CallbackQuery):
-    dev_id = int(callback.data.split("_")[2])
-    telegram_id = callback.from_user.id
-    if db.delete_user_device(dev_id):
-        new_sub_url = await panel_api.clear_client_ips(telegram_id)
-        if new_sub_url:
-            db.update_uuid(telegram_id, new_sub_url)
-        await callback.answer("✅ Устройство удалено! Ключ подписки изменён.", show_alert=True)
-        # Уведомляем пользователя о необходимости обновить ключ
-        try:
-            await bot.send_message(
-                chat_id=telegram_id,
-                text="🔄 <b>Ваш ключ подписки был изменен!</b>\n\nВ целях безопасности (чтобы удаленное устройство действительно потеряло доступ), мы обновили вашу ссылку на подписку.\n\n⚠️ <b>Пожалуйста, скопируйте новый ключ из Личного кабинета и обновите подписку во всех ваших приложениях VPN.</b>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-    else:
-        await callback.answer("❌ Не найдено.", show_alert=True)
-    await process_devices(callback)
-
 
 @dp.callback_query(F.data == "action_reset_ips")
 async def process_reset_ips(callback: CallbackQuery):
@@ -1471,14 +1446,31 @@ async def process_reset_ips(callback: CallbackQuery):
     if new_sub_url:
         db.update_uuid(telegram_id, new_sub_url)
         db.clear_user_devices(telegram_id)
-        
-        await callback.message.edit_text(
-            "✅ <b>Сессии успешно сброшены! Все устройства удалены.</b>\n\n"
-            "🔄 <b>Ваш ключ подписки был изменен!</b>\n"
-            "Пожалуйста, скопируйте новую ссылку из Личного кабинета и обновите её в ваших VPN клиентах.", 
-            reply_markup=get_devices_kb(),
-            parse_mode="HTML"
+        # Формируем полную ссылку для новых кнопок
+        full_sub_link = new_sub_url
+        if full_sub_link.startswith("/"):
+            proxy_base = os.getenv("PROXY_URL_BASE")
+            if proxy_base:
+                full_sub_link = f"{proxy_base.rstrip('/')}{full_sub_link}"
+            else:
+                full_sub_link = f"{panel_api.PANEL_URL}{full_sub_link}"
+                
+        text = (
+            "🔄 <b>Ваш ключ подписки был изменен!</b>\n\n"
+            "В целях безопасности (чтобы удаленное устройство действительно потеряло доступ), мы обновили вашу ссылку на подписку.\n\n"
+            "⚠️ <b>Пожалуйста, скопируйте новый ключ из Личного кабинета и обновите подписку во всех ваших приложениях VPN.</b>\n\n"
+            f"🔑 Ваш новый ключ:\n<code>{full_sub_link}</code>\n<i>(нажмите, чтобы скопировать)</i>"
         )
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🦊 v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={full_sub_link}"),
+                InlineKeyboardButton(text="🐰 Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={full_sub_link}")
+            ],
+            [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+        ])
+        
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
         await callback.answer("✅ Сессии успешно сброшены!", show_alert=True)
     else:
         await callback.answer("❌ Ошибка сброса. Возможно, у вас нет активной подписки.", show_alert=True)
