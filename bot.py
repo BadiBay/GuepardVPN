@@ -8,7 +8,9 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiocryptopay import AioCryptoPay, Networks
 import json
-
+import base64
+import aiohttp
+from aiohttp import web
 from typing import Any, Awaitable, Callable, Dict
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 import logging
@@ -124,6 +126,99 @@ dp.callback_query.middleware(ThrottlingMiddleware())
 db.init_db()
 
 
+# --- PROXY SERVER LOGIC ---
+def extract_hwid(request: web.Request) -> tuple[str, str, str, str]:
+    user_agent = request.headers.get("User-Agent", "Unknown")
+    x_device_id = request.headers.get("X-Device-Id")
+    x_device_model = request.headers.get("X-Device-Model", "Unknown")
+    x_device_os = request.headers.get("X-Device-Os", "Unknown")
+    
+    if x_device_id:
+        return x_device_id, x_device_model, x_device_os, user_agent
+        
+    if user_agent.startswith("Happ/") or "Hiddify" in user_agent:
+        parts = user_agent.split("/")
+        if len(parts) >= 4:
+            platform = parts[2]
+            hwid = parts[3]
+            model = "Hiddify Client"
+            return hwid, model, platform, user_agent
+            
+    hwid = user_agent[:100]
+    model = "VPN Client"
+    platform = "Unknown"
+    
+    if "v2rayNG" in user_agent or "v2raytun" in user_agent.lower():
+        platform = "Android"
+        model = "v2rayNG"
+    elif "Shadowrocket" in user_agent:
+        platform = "iOS"
+        model = "Shadowrocket"
+    elif "V2Box" in user_agent:
+        platform = "iOS/macOS"
+        model = "V2Box"
+    elif "CFNetwork" in user_agent or "Darwin" in user_agent:
+        platform = "iOS/macOS"
+        
+    return hwid, model, platform, user_agent
+
+async def handle_sub_request(request: web.Request):
+    uuid_path = request.match_info.get("uuid_path")
+    if not uuid_path:
+        return web.Response(status=404, text="Not Found")
+        
+    import sqlite3
+    conn = sqlite3.connect(db.DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, is_active FROM users WHERE uuid LIKE ?", (f"%{uuid_path}%",))
+    user_row = cursor.fetchone()
+    conn.close()
+    
+    telegram_id = user_row[0] if user_row else None
+    
+    if telegram_id:
+        hwid, model, platform, ua = extract_hwid(request)
+        device_count = db.get_device_count(telegram_id)
+        
+        conn = sqlite3.connect(db.DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM user_devices WHERE telegram_id = ? AND hwid = ?", (telegram_id, hwid))
+        device_exists = cursor.fetchone() is not None
+        conn.close()
+        
+        if not device_exists and device_count >= 3:
+            dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
+            encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
+            return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
+            
+        db.add_or_update_device(telegram_id, hwid, model, platform, ua)
+
+    target_url = f"{panel_api.PANEL_URL}/{uuid_path}"
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host']}
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(target_url, headers=headers) as resp:
+                content = await resp.read()
+                return web.Response(body=content, status=resp.status, headers=resp.headers)
+        except Exception as e:
+            return web.Response(status=500, text=f"Gateway Error: {str(e)}")
+
+
+async def run_proxy_server():
+    app = web.Application()
+    app.router.add_get('/{uuid_path:.*}', handle_sub_request)
+    
+    proxy_port = int(os.getenv("PROXY_PORT", "8080"))
+    proxy_host = os.getenv("PROXY_HOST", "0.0.0.0")
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, proxy_host, proxy_port)
+    await site.start()
+    logger.info(f"Subscription Proxy Server started on http://{proxy_host}:{proxy_port}")
+# --- END PROXY LOGIC ---
+
 from urllib.parse import urlencode
 
 def get_webapp_url(user_id: int | None = None) -> str:
@@ -134,7 +229,11 @@ def get_webapp_url(user_id: int | None = None) -> str:
             balance, sub_end, client_uuid = user_data
             sub_link = client_uuid if client_uuid else 'None'
             if sub_link != 'None' and sub_link.startswith("/"):
-                sub_link = f"{panel_api.PANEL_URL}{sub_link}"
+                proxy_base = os.getenv("PROXY_URL_BASE")
+                if proxy_base:
+                    sub_link = f"{proxy_base.rstrip('/')}{sub_link}"
+                else:
+                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
             end_str = str(sub_end) if sub_end else 'None'
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
@@ -1220,7 +1319,11 @@ async def process_profile(callback: CallbackQuery):
             if client_uuid:
                 sub_link = client_uuid
                 if sub_link.startswith("/"):
-                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
+                    proxy_base = os.getenv("PROXY_URL_BASE")
+                    if proxy_base:
+                        sub_link = f"{proxy_base.rstrip('/')}{sub_link}"
+                    else:
+                        sub_link = f"{panel_api.PANEL_URL}{sub_link}"
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     text = (
@@ -1252,15 +1355,47 @@ async def process_toggle_auto_renew(callback: CallbackQuery):
 @dp.callback_query(F.data == "menu_devices")
 async def process_devices(callback: CallbackQuery):
     telegram_id = callback.from_user.id
-    text = (
-        "📱 <b>Управление устройствами</b>\n\n"
-        "Вы можете использовать VPN на нескольких устройствах.\n\n"
-        "Если VPN перестал подключаться (например, при смене Wi-Fi на мобильный интернет), "
-        "вероятно, ваша сессия зависла.\n\n"
-        "Нажмите кнопку ниже, чтобы сбросить сессии (ваша ссылка на подписку обновится)."
-    )
-    await safe_edit(callback.message, text, reply_markup=get_devices_kb(), parse_mode="HTML")
+    devices = db.get_user_devices(telegram_id)
+    
+    if not devices:
+        text = "📱 <b>Ваши устройства</b>\n\nВы еще не подключали ни одного устройства через ссылку подписки."
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")]
+        ])
+        await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+        await callback.answer()
+        return
+
+    text = f"📱 <b>Отслеживание устройств (Макс 3)</b>\n\nПривязано: {len(devices)}/3\n\n"
+    keyboard = []
+    
+    for i, dev in enumerate(devices):
+        dev_id, hwid, model, platform, ua, created_at, updated_at = dev
+        text += f"<b>{i+1}.</b>\n"
+        text += f"📱 Модель: {model}\n"
+        text += f"🧠 Платформа: {platform}\n"
+        text += f"🌐 User-Agent: {ua}\n"
+        text += f"⏱ Создано: {created_at}\n"
+        text += f"🔄 Обновлено: {updated_at}\n"
+        text += f"🔑 HWID: <code>{hwid}</code>\n\n"
+        
+        keyboard.append([InlineKeyboardButton(text=f"🗑 Удалить устройство {i+1}", callback_data=f"del_dev_{dev_id}")])
+        
+    # keyboard.append([InlineKeyboardButton(text="🔄 Сбросить IP сессии (Marzban)", callback_data="action_reset_ips")])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")])
+    kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("del_dev_"))
+async def process_delete_device(callback: CallbackQuery):
+    dev_id = int(callback.data.split("_")[2])
+    if db.delete_user_device(dev_id):
+        await callback.answer("✅ Устройство удалено!", show_alert=True)
+    else:
+        await callback.answer("❌ Не найдено.", show_alert=True)
+    await process_devices(callback)
 
 
 @dp.callback_query(F.data == "action_reset_ips")
@@ -1637,6 +1772,8 @@ async def check_expired_24h_ago():
     from aiogram.types import FSInputFile
     import os
     
+    image_path = "24 часа прошло.png"
+    
     for user_id in expired_users:
         try:
             text = (
@@ -1647,10 +1784,46 @@ async def check_expired_24h_ago():
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Купить подписку", callback_data="menu_tariffs")]
             ])
-            await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+            
+            if os.path.exists(image_path):
+                photo = FSInputFile(image_path)
+                await bot.send_photo(chat_id=user_id, photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
+            else:
+                await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+            
             db.mark_notified_24h(user_id)
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление 24h {user_id}: {e}")
+
+async def check_zero_traffic_after_24h():
+    """Рассылка, если прошло 24 часа с покупки, подписка активна, но трафик 0"""
+    users_to_check = db.get_users_zero_traffic_24h()
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    for user_id in users_to_check:
+        try:
+            # Проверяем трафик пользователя
+            used_traffic_gb = await panel_api.get_client_stats(user_id)
+            if used_traffic_gb == 0.0 or used_traffic_gb < 0.001:
+                # Отправляем сообщение
+                text = (
+                    "👋 <b>Привет!</b>\n\n"
+                    "Прошло 24 часа с момента вашей подписки на GuepardVPN, "
+                    "но мы видим, что вы еще ни разу не подключались.\n\n"
+                    "Всё ли хорошо? Получилось ли у вас настроить VPN?\n"
+                    "Напишите нам, если нужна помощь!"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💬 Поддержка", callback_data="support_start")],
+                    [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
+                ])
+                await bot.send_message(chat_id=user_id, text=text, reply_markup=kb, parse_mode="HTML")
+            
+            # Отмечаем, что проверили (или отправили)
+            db.mark_notified_zero_traffic(user_id)
+        except Exception as e:
+            logger.error(f"Ошибка в check_zero_traffic_after_24h для {user_id}: {e}")
+
 
 async def check_yookassa_invoices():
     """Фоновая задача: проверка статуса платежей ЮKassa"""
@@ -1945,7 +2118,11 @@ async def main():
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=30)
     scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=15)
     scheduler.add_job(auto_renew_subscriptions, trigger='interval', hours=1)
+    scheduler.add_job(check_zero_traffic_after_24h, trigger='interval', hours=1)
     scheduler.start()
+
+    # Start proxy server concurrently without blocking
+    asyncio.create_task(run_proxy_server())
 
     try:
         await dp.start_polling(bot)
