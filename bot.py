@@ -160,8 +160,8 @@ def extract_hwid(request: web.Request) -> tuple[str, str, str, str, bool]:
     platform = "Unknown"
     
     if "v2rayNG" in user_agent or "v2raytun" in user_agent.lower():
-        platform = "Android"
-        model = "v2rayNG"
+        platform = "Android/iOS"
+        model = "v2rayTun"
     elif "Shadowrocket" in user_agent:
         platform = "iOS"
         model = "Shadowrocket"
