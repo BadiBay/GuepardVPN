@@ -298,7 +298,25 @@ async def run_proxy_server():
     logger.info(f"Subscription Proxy Server started on http://{proxy_host}:{proxy_port}")
 # --- END PROXY LOGIC ---
 
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
+
+def format_sub_link(client_uuid: str | None) -> str:
+    if not client_uuid or client_uuid == 'None':
+        return 'None'
+    import remnawave_api as panel_api
+    
+    path = client_uuid
+    if client_uuid.startswith("http"):
+        path = urlparse(client_uuid).path
+        
+    if not path.startswith("/"):
+        path = "/" + path
+        
+    proxy_base = os.getenv("PROXY_URL_BASE")
+    if proxy_base:
+         return f"{proxy_base.rstrip('/')}{path}"
+    return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
+
 
 def get_webapp_url(user_id: int | None = None) -> str:
     WEBAPP_URL = os.getenv("WEBAPP_URL", "https://example.com").rstrip('/')
@@ -306,13 +324,7 @@ def get_webapp_url(user_id: int | None = None) -> str:
         user_data = db.get_user(user_id)
         if user_data:
             balance, sub_end, client_uuid = user_data
-            sub_link = client_uuid if client_uuid else 'None'
-            if sub_link != 'None' and sub_link.startswith("/"):
-                proxy_base = os.getenv("PROXY_URL_BASE")
-                if proxy_base:
-                    sub_link = f"{proxy_base.rstrip('/')}{sub_link}"
-                else:
-                    sub_link = f"{panel_api.PANEL_URL}{sub_link}"
+            sub_link = format_sub_link(client_uuid)
             end_str = str(sub_end) if sub_end else 'None'
             
             params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
@@ -1440,13 +1452,7 @@ async def process_profile(callback: CallbackQuery):
             used_gb = await panel_api.get_client_stats(callback.from_user.id)
 
             if client_uuid:
-                sub_link = client_uuid
-                if sub_link.startswith("/"):
-                    proxy_base = os.getenv("PROXY_URL_BASE")
-                    if proxy_base:
-                        sub_link = f"{proxy_base.rstrip('/')}{sub_link}"
-                    else:
-                        sub_link = f"{panel_api.PANEL_URL}{sub_link}"
+                sub_link = format_sub_link(client_uuid)
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
     text = (
