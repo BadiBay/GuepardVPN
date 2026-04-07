@@ -31,7 +31,7 @@ import os
 from dotenv import load_dotenv
 
 import database as db
-import marzban_api as panel_api
+import remnawave_api as panel_api
 
 # Загружаем переменные окружения
 load_dotenv()
