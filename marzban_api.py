@@ -9,6 +9,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000").rstrip('/')
+PANEL_TOKEN = os.getenv("PANEL_TOKEN")
 USERNAME = os.getenv("PANEL_USERNAME", "admin")
 PASSWORD = os.getenv("PANEL_PASSWORD", "admin")
 
@@ -36,6 +37,11 @@ async def get_token() -> str | None:
     global _token, _token_expiry
     import time
     now = time.time()
+    
+    # If explicitly set in .env, use that
+    if PANEL_TOKEN:
+        return PANEL_TOKEN
+        
     if _token and now < _token_expiry:
         return _token
 
@@ -47,16 +53,15 @@ async def get_token() -> str | None:
             if resp.status == 200:
                 result = await resp.json()
                 _token = result.get("access_token")
-                # Token usually valid for 24h, we cache it for 23h
                 _token_expiry = now + (23 * 3600)
                 return _token
             return None
     except Exception as e:
-        logger.error(f"Error getting Marzban token: {e}")
+        logger.error(f"Error getting Marzban/Remna token: {e}")
         return None
 
-
-async def get_subscription_url(telegram_id: int) -> str | None:
+async def resolve_user_uuid(telegram_id: int) -> str | None:
+    """Helper for Remnawave to get UUID by username (get_m_username)"""
     try:
         session = await get_session()
         token = await get_token()
@@ -64,13 +69,37 @@ async def get_subscription_url(telegram_id: int) -> str | None:
             return None
 
         m_user = get_m_username(telegram_id)
-        url = f"{PANEL_URL}/api/user/{m_user}"
+        url = f"{PANEL_URL}/api/users/resolve"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        payload = {"username": m_user}
+
+        async with session.post(url, json=payload, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                # Remnawave v2 returns {"response": {"uuid": "...", ...}}
+                return data.get("response", {}).get("uuid")
+            return None
+    except Exception as e:
+        logger.error(f"Error resolving user {telegram_id}: {e}")
+        return None
+
+
+async def get_subscription_url(telegram_id: int) -> str | None:
+    try:
+        uuid = await resolve_user_uuid(telegram_id)
+        if not uuid: return None
+
+        session = await get_session()
+        token = await get_token()
+        url = f"{PANEL_URL}/api/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}"}
 
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                return data.get("subscription_url")
+                # In Remnawave it is usually in 'response' or direct
+                res = data.get("response", data)
+                return res.get("subscription_url")
             return None
     except Exception as e:
         logger.error(f"Error getting sub link: {e}")
@@ -82,10 +111,10 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
         session = await get_session()
         token = await get_token()
         if not token:
-            logger.warning("Marzban auth failed")
+            logger.warning("Panel auth failed")
             return None
 
-        url = f"{PANEL_URL}/api/user"
+        url = f"{PANEL_URL}/api/users" # Remnawave plural
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json"
@@ -94,20 +123,21 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
         expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
         m_user = get_m_username(telegram_id)
 
+        # Basic Marzban-compatible payload often works for Remnawave
         payload = {
             "username": m_user,
             "proxies": {"vless": {}},
             "inbounds": {},
             "expire": expire,
             "data_limit": 0,
-            "data_limit_reset_strategy": "no_reset",
-            "status": "active"
+            "data_limit_reset_strategy": "no_reset"
         }
 
         async with session.post(url, json=payload, headers=headers) as resp:
             if resp.status in (200, 201):
                 data = await resp.json()
-                return data.get("subscription_url")
+                res = data.get("response", data)
+                return res.get("subscription_url")
             elif resp.status == 409: # Already exists
                 return await get_subscription_url(telegram_id)
             else:
@@ -120,13 +150,12 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
 
 async def disable_client(client_uuid: str, telegram_id: int) -> bool:
     try:
+        uuid = await resolve_user_uuid(telegram_id)
+        if not uuid: return False
+
         session = await get_session()
         token = await get_token()
-        if not token:
-            return False
-
-        m_user = get_m_username(telegram_id)
-        url = f"{PANEL_URL}/api/user/{m_user}"
+        url = f"{PANEL_URL}/api/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}"}
         payload = {"status": "disabled"}
 
@@ -139,13 +168,12 @@ async def disable_client(client_uuid: str, telegram_id: int) -> bool:
 
 async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_ms: int) -> bool:
     try:
+        uuid = await resolve_user_uuid(telegram_id)
+        if not uuid: return False
+
         session = await get_session()
         token = await get_token()
-        if not token:
-            return False
-
-        m_user = get_m_username(telegram_id)
-        url = f"{PANEL_URL}/api/user/{m_user}"
+        url = f"{PANEL_URL}/api/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}"}
         expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
         payload = {"expire": expire, "status": "active"}
@@ -162,21 +190,20 @@ async def get_client_ips(telegram_id: int) -> int:
 
 
 async def clear_client_ips(telegram_id: int) -> str | None:
-    # Возвращает новую ссылку на подписку
     try:
+        uuid = await resolve_user_uuid(telegram_id)
+        if not uuid: return None
+
         session = await get_session()
         token = await get_token()
-        if not token:
-            return None
-
-        m_user = get_m_username(telegram_id)
-        url = f"{PANEL_URL}/api/user/{m_user}/revoke_sub"
+        url = f"{PANEL_URL}/api/users/{uuid}/revoke_sub"
         headers = {"Authorization": f"Bearer {token}"}
 
         async with session.post(url, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                return data.get("subscription_url")
+                res = data.get("response", data)
+                return res.get("subscription_url")
             return None
     except Exception as e:
         logger.error(f"Error in clear_client_ips: {e}")
@@ -185,19 +212,21 @@ async def clear_client_ips(telegram_id: int) -> str | None:
 
 async def get_client_stats(telegram_id: int) -> float:
     try:
+        uuid = await resolve_user_uuid(telegram_id)
+        if not uuid: return 0.0
+
         session = await get_session()
         token = await get_token()
-        if not token:
-            return 0.0
-
-        m_user = get_m_username(telegram_id)
-        url = f"{PANEL_URL}/api/user/{m_user}"
+        # In Remnawave v2, total traffic is in the user profile
+        url = f"{PANEL_URL}/api/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}"}
 
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                used_bytes = data.get("used_traffic", 0)
+                resp_data = data.get("response", data)
+                traffic_info = resp_data.get("userTraffic", {})
+                used_bytes = traffic_info.get("usedTrafficBytes", 0)
                 return round(used_bytes / (1024 ** 3), 2)
             return 0.0
     except Exception as e:

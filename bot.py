@@ -263,10 +263,8 @@ async def handle_sub_request(request: web.Request):
 
 
     # Формируем целевой URL. 
-    # Если uuid_path уже содержит / в начале или PANEL_URL имеет слеш, убираем один
-    base_url = panel_api.PANEL_URL.rstrip('/')
-    clean_uuid = uuid_path.lstrip('/')
-    target_url = f"{base_url}/{clean_uuid}"
+    # Решение для Remnawave: конфиг лежит по пути /api/sub/UUID
+    target_url = f"{base_url}/api/sub/{clean_uuid}"
     
     logger.info(f"Forwarding to Panel: {target_url}")
     
