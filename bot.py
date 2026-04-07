@@ -1545,7 +1545,6 @@ async def process_reset_ips(callback: CallbackQuery):
             if proxy_base and not full_sub_link.startswith("/api/sub/"):
                 full_sub_link = f"{proxy_base.rstrip('/')}{full_sub_link}"
             else:
-                import remnawave_api as panel_api
                 full_sub_link = f"{panel_api.PANEL_URL.rstrip('/')}{full_sub_link}"
                 
         text = (
