@@ -87,12 +87,12 @@ async def get_subscription_url(telegram_id: int) -> str | None:
         m_user = get_m_username(telegram_id)
         user_data = await resolve_user(m_user, token, session)
         if user_data:
-            uuid = user_data.get("uuid") or user_data.get("id")
+            uuid = user_data.get("shortUuid") or user_data.get("uuid") or user_data.get("id")
             sub_url = user_data.get("subscriptionUrl") or user_data.get("subscription_url")
             if sub_url:
                 return sub_url
             if uuid:
-                return f"/sub/{uuid}"
+                return f"/api/sub/{uuid}"
         return None
     except Exception as e:
         logger.error(f"Error getting sub link: {e}")
@@ -142,12 +142,12 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
             if resp.status in (200, 201):
                 raw = await resp.json()
                 data = raw.get("response", raw) if isinstance(raw, dict) else raw
-                uuid = data.get("uuid") or data.get("id")
+                uuid = data.get("shortUuid") or data.get("uuid") or data.get("id")
                 sub_url = data.get("subscriptionUrl") or data.get("subscription_url")
                 if sub_url:
                     return sub_url
                 if uuid:
-                    return f"/sub/{uuid}"
+                    return f"/api/sub/{uuid}"
                 # Иногда возвращается сразу в корне ответа
                 return await get_subscription_url(telegram_id)
             elif resp.status == 409: # Already exists
@@ -306,9 +306,9 @@ async def clear_client_ips(telegram_id: int) -> str | None:
                 # Если revoke поменял uuid, нам надо снова его получить
                 new_user_data = await resolve_user(m_user, token, session)
                 if new_user_data:
-                    new_uuid = new_user_data.get("uuid")
+                    new_uuid = new_user_data.get("shortUuid") or new_user_data.get("uuid") or new_user_data.get("id")
                     if new_uuid:
-                        return f"/sub/{new_uuid}"
+                        return f"/api/sub/{new_uuid}"
             return None
     except Exception as e:
         logger.error(f"Error in clear_client_ips: {e}")

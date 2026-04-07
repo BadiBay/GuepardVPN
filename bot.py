@@ -321,7 +321,7 @@ def format_sub_link(client_uuid: str | None) -> str:
         path = "/" + path
         
     proxy_base = os.getenv("PROXY_URL_BASE")
-    if proxy_base:
+    if proxy_base and not path.startswith("/api/sub"):
         return f"{proxy_base.rstrip('/')}{path}"
     return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
 
@@ -1539,14 +1539,14 @@ async def process_reset_ips(callback: CallbackQuery):
     if new_sub_url:
         db.update_uuid(telegram_id, new_sub_url)
         db.clear_user_devices(telegram_id)
-        # Формируем полную ссылку для новых кнопок
         full_sub_link = new_sub_url
         if full_sub_link.startswith("/"):
             proxy_base = os.getenv("PROXY_URL_BASE")
-            if proxy_base:
+            if proxy_base and not full_sub_link.startswith("/api/sub/"):
                 full_sub_link = f"{proxy_base.rstrip('/')}{full_sub_link}"
             else:
-                full_sub_link = f"{panel_api.PANEL_URL}{full_sub_link}"
+                import remnawave_api as panel_api
+                full_sub_link = f"{panel_api.PANEL_URL.rstrip('/')}{full_sub_link}"
                 
         text = (
             "🔄 <b>Ваш ключ подписки был изменен!</b>\n\n"
