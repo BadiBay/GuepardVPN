@@ -64,6 +64,8 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast_msg = State()
     waiting_for_broadcast_btn = State()
     waiting_for_search_id = State()
+    waiting_for_limit_user = State()
+    waiting_for_limit_count = State()
 
 class SupportStates(StatesGroup):
     waiting_for_message = State()
@@ -230,6 +232,7 @@ async def handle_sub_request(request: web.Request):
             logger.info(f"Browser detected for User {telegram_id}, skipping device tracking.")
         else:
             device_count = db.get_device_count(telegram_id)
+            user_limit = db.get_user_device_limit(telegram_id)
             
             conn = sqlite3.connect(db.DB_NAME)
             cursor = conn.cursor()
@@ -237,20 +240,20 @@ async def handle_sub_request(request: web.Request):
             device_exists = cursor.fetchone() is not None
             conn.close()
             
-            if not device_exists and device_count >= 3:
-                logger.warning(f"Device limit exceeded for User {telegram_id}")
+            if not device_exists and device_count >= user_limit:
+                logger.warning(f"Device limit exceeded for User {telegram_id}. Limit: {user_limit}")
                 
                 # Уведомляем пользователя
                 asyncio.create_task(
                     bot.send_message(
                         chat_id=telegram_id,
-                        text="⚠️ <b>Внимание! При попытке подключиться достигнут лимит устройств.</b>\n\nВы пытаетесь использовать конфигурацию на 4-ом устройстве, но максимальное количество — 3.\nПожалуйста, удалите старые устройства (если нужно, переустановите подписку).",
+                        text=f"⚠️ <b>Внимание! При попытке подключиться достигнут лимит устройств.</b>\n\nВы пытаетесь использовать конфигурацию на {user_limit + 1}-ом устройстве, но ваше максимальное количество — {user_limit}.\nПожалуйста, удалите старые устройства (если нужно, переустановите подписку).",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Управление устройствами", callback_data="menu_devices")]]),
                         parse_mode="HTML"
                     )
                 )
                 
-                dummy_node = "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс 3)"
+                dummy_node = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс {user_limit})"
                 encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
                 return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
                 
@@ -360,6 +363,7 @@ def get_admin_kb():
         [InlineKeyboardButton(text="🎁 Выдать подписку", callback_data="admin_give_sub")],
         [InlineKeyboardButton(text="🔍 Найти пользователя", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="📱 Лимит устройств", callback_data="admin_device_limit")],
         [InlineKeyboardButton(text="🔔 Тест уведомления", callback_data="admin_test_notify")],
         [InlineKeyboardButton(text="🔙 Выход", callback_data="menu_main")]
     ])
@@ -614,6 +618,48 @@ async def cmd_admin(message: Message):
 
     text = "🔒 <b>Панель администратора</b>\n\nВыберите нужное действие:"
     await message.answer(text, reply_markup=get_admin_kb(), parse_mode="HTML")
+
+@dp.callback_query(F.data == "admin_device_limit")
+async def process_admin_device_limit(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await callback.message.answer("📱 Введите Telegram ID или @username пользователя для настройки лимита устройств:")
+    await state.set_state(AdminStates.waiting_for_limit_user)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_limit_user)
+async def process_limit_user_input(message: Message, state: FSMContext):
+    text = message.text.strip()
+    target_id = None
+    if text.isdigit():
+        target_id = int(text)
+    else:
+        username = text.lstrip("@")
+        found_id = db.get_user_by_username(username)
+        if found_id:
+            target_id = found_id
+    if not target_id or not db.get_user(target_id):
+        await message.answer("❌ Пользователь не найден. Проверьте ID или username:")
+        return
+    await state.update_data(limit_target_id=target_id)
+    cur_limit = db.get_user_device_limit(target_id)
+    await message.answer(f"👤 Пользователь <b>{target_id}</b>.\nТекущий лимит устройств: <b>{cur_limit}</b>\n\nВведите новый лимит (число):", parse_mode="HTML")
+    await state.set_state(AdminStates.waiting_for_limit_count)
+
+@dp.message(AdminStates.waiting_for_limit_count)
+async def process_limit_count_input(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("⚠️ Введите число:")
+        return
+    new_limit = int(message.text)
+    data = await state.get_data()
+    target_id = data.get('limit_target_id')
+    
+    db.set_user_device_limit(target_id, new_limit)
+    await panel_api.update_hwid_device_limit(target_id, new_limit)
+    
+    await message.answer(f"✅ Лимит устройств для <b>{target_id}</b> успешно обновлён до <b>{new_limit}</b>.", parse_mode="HTML")
+    await state.clear()
 
 
 @dp.callback_query(F.data == "admin_test_notify")

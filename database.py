@@ -52,6 +52,10 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     try:
+        cursor.execute("ALTER TABLE users ADD COLUMN device_limit INTEGER DEFAULT 3")
+    except sqlite3.OperationalError:
+        pass
+    try:
         cursor.execute("ALTER TABLE users ADD COLUMN last_tariff_days INTEGER DEFAULT NULL")
     except sqlite3.OperationalError:
         pass
@@ -106,6 +110,26 @@ def get_user_by_username(username: str):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
+
+def get_user_device_limit(telegram_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT device_limit FROM users WHERE telegram_id = ?", (telegram_id,))
+        result = cursor.fetchone()
+        conn.close()
+        if result and result[0] is not None:
+            return result[0]
+    except sqlite3.OperationalError:
+        conn.close()
+    return 3
+
+def set_user_device_limit(telegram_id: int, limit: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET device_limit = ? WHERE telegram_id = ?", (limit, telegram_id))
+    conn.commit()
+    conn.close()
 
 
 def update_uuid(telegram_id: int, client_uuid: str):

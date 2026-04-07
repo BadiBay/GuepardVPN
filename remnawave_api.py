@@ -114,21 +114,28 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
         
         m_user = get_m_username(telegram_id)
 
-        # Подготавливаем expire. В разных версиях может быть expire или expireAt
-        expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
+        from datetime import datetime, timezone, timedelta
         
         payload = {
             "username": m_user,
-            "status": "active"
+            "status": "ACTIVE"
         }
-        if expire:
+        
+        # Получаем лимит устройств из БД
+        import database as temp_db
+        user_limit = temp_db.get_user_device_limit(telegram_id)
+        if user_limit:
+            payload["hwidDeviceLimit"] = user_limit
+
+        if expiry_time_ms > 0:
+            expire = int(expiry_time_ms / 1000)
             payload["expire"] = expire
-            # Иногда в SDK используется expireAt (может быть timestamp или строка, попробуем дать число)
-            from datetime import datetime, timezone
             try:
                 payload["expireAt"] = datetime.fromtimestamp(expire, tz=timezone.utc).isoformat()
             except Exception:
                 pass
+        else:
+            payload["expireAt"] = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
 
         async with session.post(url, json=payload, headers=headers) as resp:
             if resp.status in (200, 201):
@@ -200,18 +207,18 @@ async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_m
         url = f"{PANEL_URL}/api/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         
-        expire = None if expiry_time_ms == 0 else int(expiry_time_ms / 1000)
-        payload = {"status": "active"}
-        if expire:
+        payload = {"status": "ACTIVE"}
+        from datetime import datetime, timezone, timedelta
+        if expiry_time_ms > 0:
+            expire = int(expiry_time_ms / 1000)
             payload["expire"] = expire
-            from datetime import datetime, timezone
             try:
                 payload["expireAt"] = datetime.fromtimestamp(expire, tz=timezone.utc).isoformat()
             except Exception:
                 pass
         else:
             payload["expire"] = 0
-            payload["expireAt"] = None
+            payload["expireAt"] = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
 
         async with session.patch(url, json=payload, headers=headers) as resp:
             # Для RemnaWave апдейт обычно делается через PATCH. Если PATCH упал (404/405), попробуем PUT
@@ -233,6 +240,33 @@ async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_m
 
 async def get_client_ips(telegram_id: int) -> int:
     return 0
+
+async def update_hwid_device_limit(telegram_id: int, limit: int) -> bool:
+    try:
+        session = await get_session()
+        token = await get_token()
+        if not token:
+            return False
+
+        m_user = get_m_username(telegram_id)
+        user_data = await resolve_user(m_user, token, session)
+        if not user_data:
+            return False
+            
+        uuid = user_data.get("uuid")
+        if not uuid:
+            return False
+
+        url = f"{PANEL_URL}/api/users/{uuid}"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        
+        payload = {"hwidDeviceLimit": limit}
+
+        async with session.patch(url, json=payload, headers=headers) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        logger.error(f"Error in update_hwid_device_limit: {e}")
+        return False
 
 
 async def clear_client_ips(telegram_id: int) -> str | None:
