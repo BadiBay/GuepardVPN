@@ -312,9 +312,6 @@ def format_sub_link(client_uuid: str | None) -> str:
     if not path.startswith("/"):
         path = "/" + path
         
-    proxy_base = os.getenv("PROXY_URL_BASE")
-    if proxy_base:
-         return f"{proxy_base.rstrip('/')}{path}"
     return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
 
 
