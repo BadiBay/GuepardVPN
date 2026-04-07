@@ -263,6 +263,9 @@ async def handle_sub_request(request: web.Request):
 
 
     # Формируем целевой URL. 
+    base_url = panel_api.PANEL_URL.rstrip('/')
+    clean_uuid = uuid_path.lstrip('/')
+    
     # Решение для Remnawave: конфиг лежит по пути /api/sub/UUID
     target_url = f"{base_url}/api/sub/{clean_uuid}"
     
