@@ -68,7 +68,8 @@ async def resolve_user(m_user: str, token: str, session: aiohttp.ClientSession) 
     try:
         async with session.post(url, json={"username": m_user}, headers=headers) as resp:
             if resp.status == 200:
-                return await resp.json()
+                data = await resp.json()
+                return data.get("response", data) if isinstance(data, dict) else data
             elif resp.status == 404:
                 return None
     except Exception as e:
@@ -139,7 +140,8 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
 
         async with session.post(url, json=payload, headers=headers) as resp:
             if resp.status in (200, 201):
-                data = await resp.json()
+                raw = await resp.json()
+                data = raw.get("response", raw) if isinstance(raw, dict) else raw
                 uuid = data.get("uuid") or data.get("id")
                 sub_url = data.get("subscriptionUrl") or data.get("subscription_url")
                 if sub_url:
@@ -152,6 +154,9 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
                 return await get_subscription_url(telegram_id)
             else:
                 resp_text = await resp.text()
+                if resp.status == 400 and '"A019"' in resp_text:
+                    return await get_subscription_url(telegram_id)
+                
                 logger.error(f"API Error add_client {resp.status}: {resp_text}")
                 
                 # Если создание упало, возможно пользователь уже есть. Пробуем отрезолвить.
@@ -292,7 +297,8 @@ async def clear_client_ips(telegram_id: int) -> str | None:
         async with session.post(url, headers=headers) as resp:
             if resp.status in (200, 201):
                 # Обновляем чтобы сбросить трафик если требуется, но revoke обычно меняет UUID подписки
-                data = await resp.json()
+                raw = await resp.json()
+                data = raw.get("response", raw) if isinstance(raw, dict) else raw
                 new_sub_url = data.get("subscriptionUrl") or data.get("subscription_url")
                 if new_sub_url:
                     return new_sub_url
@@ -330,7 +336,8 @@ async def get_client_stats(telegram_id: int) -> float:
 
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
-                data = await resp.json()
+                raw = await resp.json()
+                data = raw.get("response", raw) if isinstance(raw, dict) else raw
                 # data может быть {"used": 1000, "total": 2000} или {"usedBytes": 1000, ...}
                 used_bytes = data.get("used", 0) or data.get("usedBytes", 0) or data.get("used_traffic", 0)
                 # Если stats не по этому URL а лежат в самом профиле юзера:
