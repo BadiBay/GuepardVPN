@@ -267,7 +267,12 @@ async def handle_sub_request(request: web.Request):
     clean_uuid = uuid_path.lstrip('/')
     
     # Решение для Remnawave: конфиг лежит по пути /api/sub/UUID
-    target_url = f"{base_url}/api/sub/{clean_uuid}"
+    if clean_uuid.startswith("api/sub/"):
+        target_url = f"{base_url}/{clean_uuid}"
+    elif clean_uuid.startswith("sub/"):
+        target_url = f"{base_url}/api/{clean_uuid}"
+    else:
+        target_url = f"{base_url}/api/sub/{clean_uuid}"
     
     logger.info(f"Forwarding to Panel: {target_url}")
     
@@ -305,7 +310,9 @@ def format_sub_link(client_uuid: str | None) -> str:
     if not client_uuid or client_uuid == 'None':
         return 'None'
     import remnawave_api as panel_api
-    
+    import os
+    from urllib.parse import urlparse
+
     path = client_uuid
     if client_uuid.startswith("http"):
         path = urlparse(client_uuid).path
@@ -313,6 +320,9 @@ def format_sub_link(client_uuid: str | None) -> str:
     if not path.startswith("/"):
         path = "/" + path
         
+    proxy_base = os.getenv("PROXY_URL_BASE")
+    if proxy_base:
+        return f"{proxy_base.rstrip('/')}{path}"
     return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
 
 
@@ -1448,6 +1458,12 @@ async def process_profile(callback: CallbackQuery):
                 time_left_str = f"{h_left} ч."
 
             used_gb = await panel_api.get_client_stats(callback.from_user.id)
+
+            # --- Обновляем ссылку подписки с панели Remnawave (важно для переезда) ---
+            actual_link = await panel_api.get_subscription_url(callback.from_user.id)
+            if actual_link and actual_link != client_uuid:
+                client_uuid = actual_link
+                db.update_uuid(callback.from_user.id, actual_link)
 
             if client_uuid:
                 sub_link = format_sub_link(client_uuid)
