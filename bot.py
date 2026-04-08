@@ -1368,7 +1368,7 @@ async def process_profile(callback: CallbackQuery):
 
             if client_uuid:
                 sub_link = format_sub_link(client_uuid)
-                key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
+                key_text = f"✨ <b>ВАШ КЛЮЧ (CLICK TO COPY):</b>\n<blockquote><code>{sub_link}</code></blockquote>"
 
     # Показываем тариф
     user_tier = db.get_tariff_tier(callback.from_user.id)
@@ -1383,7 +1383,7 @@ async def process_profile(callback: CallbackQuery):
         f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ\n"
         f"📱 Устройства: {device_count}/{device_limit}\n\n"
-        f"Ваш ключ (ссылка на подписку):\n{key_text}"
+        f"{key_text}"
     )
 
     await safe_edit(callback.message, text, reply_markup=get_profile_kb(sub_link, auto_renew_flag, bool(saved_pm)), parse_mode="HTML")
@@ -1490,7 +1490,8 @@ async def process_reset_ips(callback: CallbackQuery):
             "🔄 <b>Ваш ключ подписки был изменен!</b>\n\n"
             "В целях безопасности, мы обновили вашу ссылку на подписку.\n\n"
             "⚠️ <b>Пожалуйста, скопируйте новый ключ из Личного кабинета и обновите подписку во всех ваших приложениях VPN.</b>\n\n"
-            f"🔑 Ваш новый ключ:\n<code>{full_sub_link}</code>\n<i>(нажмите, чтобы скопировать)</i>"
+            "✨ <b>ВАШ НОВЫЙ КЛЮЧ:</b>\n"
+            f"<blockquote><code>{full_sub_link}</code></blockquote>"
         )
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
