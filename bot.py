@@ -1368,7 +1368,7 @@ async def process_profile(callback: CallbackQuery):
 
             if client_uuid:
                 sub_link = format_sub_link(client_uuid)
-                key_text = f"✨ <b>ВАШ КЛЮЧ (CLICK TO COPY):</b>\n<blockquote><code>{sub_link}</code></blockquote>"
+                key_text = f"✨ <b>ВАШ КЛЮЧ (Нажмите, чтобы скопировать):</b>\n<blockquote><code>{sub_link}</code></blockquote>"
 
     # Показываем тариф
     user_tier = db.get_tariff_tier(callback.from_user.id)
