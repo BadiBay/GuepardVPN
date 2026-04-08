@@ -2109,6 +2109,8 @@ async def check_cryptopay_invoices():
 
                 await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
+    except asyncio.TimeoutError:
+        logger.error("Таймаут при запросе к API CryptoPay в check_cryptopay_invoices")
     except Exception as e:
         logger.error(f"Ошибка при проверке инвойсов CryptoPay: {e}")
 
@@ -2134,7 +2136,7 @@ async def main():
     scheduler.add_job(check_expiring_soon, trigger='interval', hours=1)
     scheduler.add_job(check_expired_24h_ago, trigger='interval', hours=1)
     scheduler.add_job(check_cryptopay_invoices, trigger='interval', seconds=30)
-    scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=15)
+    scheduler.add_job(check_yookassa_invoices, trigger='interval', seconds=30)
     scheduler.add_job(auto_renew_subscriptions, trigger='interval', hours=1)
     scheduler.add_job(check_zero_traffic_after_24h, trigger='interval', hours=1)
     scheduler.start()
