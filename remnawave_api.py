@@ -393,26 +393,46 @@ async def get_client_stats(telegram_id: int) -> float:
         if not uuid:
             return 0.0
 
+        used_bytes = 0
+        
+        # 1. Пробуем получить через эндпоинт статистики
         url = f"{PANEL_URL}/api/bandwidth-stats/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
-        async with session.get(url, headers=headers) as resp:
-            if resp.status == 200:
-                raw = await resp.json()
-                data = raw.get("response", raw) if isinstance(raw, dict) else raw
-                # data может быть {"used": 1000, "total": 2000} или {"usedBytes": 1000, ...}
-                used_bytes = data.get("used", 0) or data.get("usedBytes", 0) or data.get("used_traffic", 0)
-                # Если stats не по этому URL а лежат в самом профиле юзера:
-                if used_bytes == 0 and "usedTraffic" in user_data:
-                    used_bytes = user_data.get("usedTraffic", 0)
-                if used_bytes == 0 and "used_traffic" in user_data:
-                    used_bytes = user_data.get("used_traffic", 0)
+        try:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    raw = await resp.json()
+                    data = raw.get("response", raw) if isinstance(raw, dict) else raw
                     
-                return round(used_bytes / (1024 ** 3), 2)
+                    # Разные варианты ключей в RemnaWave и смежных API
+                    used_bytes = (
+                        data.get("used") or 
+                        data.get("usedBytes") or 
+                        data.get("used_traffic") or 
+                        data.get("totalUsed") or
+                        data.get("total") or
+                        (data.get("up", 0) + data.get("down", 0)) or
+                        (data.get("uplink", 0) + data.get("downlink", 0)) or
+                        0
+                    )
+        except Exception as e:
+            logger.error(f"Error fetching stats from endpoint: {e}")
+
+        # 2. Если по эндпоинту 0, пробуем достать из данных пользователя (resolve_user)
+        if used_bytes == 0:
+            used_bytes = (
+                user_data.get("usedTraffic") or 
+                user_data.get("used_traffic") or 
+                user_data.get("totalUsedTraffic") or
+                user_data.get("total_used_traffic") or
+                user_data.get("usedBytes") or
+                (user_data.get("up", 0) + user_data.get("down", 0)) or
+                (user_data.get("uplink", 0) + user_data.get("downlink", 0)) or
+                0
+            )
             
-            # Фоллбэк: ищем трафик прямо в модели юзера
-            used_b = user_data.get("usedTraffic", 0) or user_data.get("used_traffic", 0)
-            return round(used_b / (1024 ** 3), 2)
+        return round(float(used_bytes) / (1024 ** 3), 2)
             
     except Exception as e:
         logger.error(f"Error in get_client_stats: {e}")
