@@ -76,13 +76,6 @@ class AdminSupportStates(StatesGroup):
 class GiftStates(StatesGroup):
     waiting_for_recipient = State()
 
-class GiftStates(StatesGroup):
-    waiting_for_recipient = State()
-
-
-class GiftStates(StatesGroup):
-    waiting_for_recipient = State()
-
 
 support_timeouts: Dict[int, asyncio.Task] = {} # user_id -> asyncio.Task
 
@@ -128,7 +121,35 @@ dp.callback_query.middleware(ThrottlingMiddleware())
 db.init_db()
 
 
-# --- END PROXY LOGIC ---
+# --- ТАРИФЫ ---
+# (days, tier) -> {price_rub, price_stars, devices, tier_name}
+TARIFFS = {
+    # 1 месяц
+    (30, "base"):   {"price_rub": 99,   "price_stars": 55,  "devices": 3, "name": "Базовый",  "period": "1 месяц"},
+    (30, "plus"):   {"price_rub": 149,  "price_stars": 83,  "devices": 5, "name": "Плюс",     "period": "1 месяц"},
+    (30, "family"): {"price_rub": 249,  "price_stars": 139, "devices": 8, "name": "Семейный", "period": "1 месяц"},
+    # 3 месяца
+    (90, "base"):   {"price_rub": 249,  "price_stars": 139, "devices": 3, "name": "Базовый",  "period": "3 месяца"},
+    (90, "plus"):   {"price_rub": 399,  "price_stars": 222, "devices": 5, "name": "Плюс",     "period": "3 месяца"},
+    (90, "family"): {"price_rub": 699,  "price_stars": 389, "devices": 8, "name": "Семейный", "period": "3 месяца"},
+    # 12 месяцев
+    (365, "base"):   {"price_rub": 899,  "price_stars": 495, "devices": 3, "name": "Базовый",  "period": "12 месяцев"},
+    (365, "plus"):   {"price_rub": 1299, "price_stars": 722, "devices": 5, "name": "Плюс",     "period": "12 месяцев"},
+    (365, "family"): {"price_rub": 1999, "price_stars": 1111,"devices": 8, "name": "Семейный", "period": "12 месяцев"},
+}
+
+TIER_EMOJI = {"base": "📦", "plus": "⭐", "family": "👨‍👩‍👧‍👦"}
+TIER_NAMES = {"base": "Базовый", "plus": "Плюс", "family": "Семейный"}
+
+def get_tariff(days: int, tier: str) -> dict | None:
+    return TARIFFS.get((days, tier))
+
+def get_tariff_price_rub(days: int, tier: str) -> int:
+    t = get_tariff(days, tier)
+    return t["price_rub"] if t else 0
+
+
+# --- END TARIFFS ---
 
 from urllib.parse import urlparse, urlencode
 
@@ -230,24 +251,39 @@ def get_install_kb():
 
 
 def get_tariffs_kb(telegram_id: int):
+    """Первый шаг: выбор периода."""
     keyboard = []
     if not db.has_ever_subscribed(telegram_id):
         keyboard.append([InlineKeyboardButton(text="🎁 Бесплатный тест (24 часа)", callback_data="test_24h")])
         
     keyboard.extend([
-        [InlineKeyboardButton(text="1 месяц - 99р", callback_data="select_tariff_30")],
-        [InlineKeyboardButton(text="🔥 3 месяца (Выгода 20%) - 249р", callback_data="select_tariff_90")],
-        [InlineKeyboardButton(text="12 месяцев (Выгода 33%) - 899р", callback_data="select_tariff_365")],
+        [InlineKeyboardButton(text="📅 1 месяц — от 99₽", callback_data="period_30")],
+        [InlineKeyboardButton(text="🔥 3 месяца — от 249₽", callback_data="period_90")],
+        [InlineKeyboardButton(text="💎 12 месяцев — от 899₽", callback_data="period_365")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_payment_method_kb(days: int):
+def get_tier_kb(days: int):
+    """Второй шаг: выбор тира (уровня) внутри периода."""
+    keyboard = []
+    for tier in ("base", "plus", "family"):
+        t = get_tariff(days, tier)
+        if t:
+            emoji = TIER_EMOJI.get(tier, "")
+            keyboard.append([InlineKeyboardButton(
+                text=f"{emoji} {t['name']} — {t['price_rub']}₽ ({t['devices']} устр.)",
+                callback_data=f"tariff_{days}_{tier}"
+            )])
+    keyboard.append([InlineKeyboardButton(text="🔙 Назад к периодам", callback_data="menu_tariffs")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_payment_method_kb(days: int, tier: str = "base"):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплата картой (ЮKassa)", callback_data=f"buy_yoomoney_{days}")],
-        [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data=f"buy_stars_{days}")],
-        [InlineKeyboardButton(text="🪙 Криптовалюта", callback_data=f"buy_crypto_{days}")],
-        [InlineKeyboardButton(text="🔙 Назад к тарифами", callback_data="menu_tariffs")]
+        [InlineKeyboardButton(text="💳 Оплата картой (ЮKassa)", callback_data=f"buy_yoomoney_{days}_{tier}")],
+        [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data=f"buy_stars_{days}_{tier}")],
+        [InlineKeyboardButton(text="🪙 Криптовалюта", callback_data=f"buy_crypto_{days}_{tier}")],
+        [InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data=f"period_{days}")]
     ])
 
 
@@ -330,7 +366,7 @@ async def send_welcome_message(chat_id: int, user_id: int):
         text = (
             "🔐 <b>Подписка активна — Вы под защитой GuepardVPN🐆</b>\n\n"
             "Ваш трафик зашифрован, личные данные в безопасности. Подключайтесь в один клик — и пользуйтесь интернетом уверенно.\n\n"
-            "📱 До 3 устройств — один ключ.\n"
+            "📱 До 8 устройств — один ключ.\n"
             "🛠 Управление и инструкции — в личном кабинете.\n"
             f"💬 Нужна помощь? <a href='{support_url}'>Напишите нам</a>"
         )
@@ -386,15 +422,20 @@ async def cmd_start(message: Message, state: FSMContext):
                 if len(parts) >= 3:
                     method = parts[1]
                     days = int(parts[2])
+                    tier = parts[3] if len(parts) > 3 else "base"
+                    
+                    t = get_tariff(days, tier)
+                    if not t:
+                        await message.answer("Ошибка тарифа.")
+                        return
                     
                     if method == "stars":
-                        prices_map = {30: 55, 90: 139, 365: 495}
-                        price = prices_map.get(days, 55)
+                        price = t["price_stars"]
                         await bot.send_invoice(
                             chat_id=message.chat.id,
-                            title=f"Подписка GuepardVPN на {days} дней",
-                            description="Безлимитный трафик, высокая скорость и надежная защита ваших данных.",
-                            payload=f"vpn_sub_{days}",
+                            title=f"GuepardVPN {t['name']} — {t['period']}",
+                            description=f"{t['devices']} устройств. Безлимитный трафик.",
+                            payload=f"vpn_sub_{days}_{tier}",
                             provider_token="",
                             currency="XTR",
                             prices=[LabeledPrice(label="VPN Подписка", amount=price)]
@@ -405,58 +446,54 @@ async def cmd_start(message: Message, state: FSMContext):
                         if not yookassa_enabled:
                             await message.answer("Оплата картой временно недоступна.")
                             return
-                        prices_map = {30: 99, 90: 249, 365: 899}
-                        price = prices_map.get(days, 0)
-                        if price:
-                            try:
-                                import uuid as _uuid
-                                from yookassa import Payment as YKPayment
-                                label = f"vpn_{message.from_user.id}_{days}"
-                                payment = YKPayment.create({
-                                    "amount": {"value": f"{price}.00", "currency": "RUB"},
-                                    "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
-                                    "capture": True,
-                                    "save_payment_method": True,
-                                    "description": f"Подписка GuepardVPN на {days} дней",
-                                    "metadata": {"label": label}
-                                }, str(_uuid.uuid4()))
-                                url = payment.confirmation.confirmation_url
-                                kb = InlineKeyboardMarkup(inline_keyboard=[
-                                    [InlineKeyboardButton(text="💳 Оплатить (ЮKassa)", url=url)]
-                                ])
-                                await message.answer(
-                                    f"🧾 <b>Счет на оплату (Банковская карта / СБП)</b>\n\n"
-                                    f"Тариф: <b>{days} дней</b>\n"
-                                    f"Сумма: <b>{price} руб</b>\n\n"
-                                    f"Нажмите кнопку ниже для безопасной оплаты. После успешной оплаты подписка активируется автоматически в течение минуты.",
-                                    reply_markup=kb, parse_mode="HTML"
-                                )
-                            except Exception as e:
-                                logger.error(f"ЮKassa error in start link: {e}")
-                                await message.answer("Ошибка создания платежа.")
+                        price = t["price_rub"]
+                        try:
+                            import uuid as _uuid
+                            from yookassa import Payment as YKPayment
+                            label = f"vpn_{message.from_user.id}_{days}_{tier}"
+                            payment = YKPayment.create({
+                                "amount": {"value": f"{price}.00", "currency": "RUB"},
+                                "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
+                                "capture": True,
+                                "save_payment_method": True,
+                                "description": f"GuepardVPN {t['name']} — {t['period']}",
+                                "metadata": {"label": label}
+                            }, str(_uuid.uuid4()))
+                            url = payment.confirmation.confirmation_url
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="💳 Оплатить (ЮKassa)", url=url)]
+                            ])
+                            await message.answer(
+                                f"🧾 <b>Счет на оплату (Банковская карта / СБП)</b>\n\n"
+                                f"Тариф: <b>{t['name']} — {t['period']}</b> ({t['devices']} устр.)\n"
+                                f"Сумма: <b>{price} руб</b>\n\n"
+                                f"Нажмите кнопку ниже для безопасной оплаты.",
+                                reply_markup=kb, parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.error(f"ЮKassa error in start link: {e}")
+                            await message.answer("Ошибка создания платежа.")
                         return
                         
                     elif method == "crypto":
                         if not cryptopay:
                             await message.answer("Оплата криптовалютой временно недоступна.")
                             return
-                        prices = {30: 99, 90: 249, 365: 899}
-                        price_rub = prices.get(days, 0)
-                        if price_rub:
-                            try:
-                                price_usdt = round(price_rub / 80.0, 2)
-                                invoice = await cryptopay.create_invoice(asset="USDT", amount=price_usdt, payload=f"vpn_{message.from_user.id}_{days}")
-                                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🪙 Оплатить (CryptoBot)", url=invoice.bot_invoice_url)]])
-                                await message.answer(
-                                    f"🧾 <b>Счет на оплату криптовалютой</b>\n\n"
-                                    f"Тариф: <b>{days} дней</b>\n"
-                                    f"Сумма: <b>{price_usdt} USDT</b> (~{price_rub} руб)\n\n"
-                                    f"Нажмите кнопку ниже для безопасной оплаты. Ваши средства поступят напрямую. После успешной оплаты подписка активируется автоматически в течение минуты.",
-                                    reply_markup=kb, parse_mode="HTML"
-                                )
-                            except Exception as e:
-                                logger.error(f"CryptoPay error in start link: {e}")
-                                await message.answer("Ошибка создания платежа CryptoPay.")
+                        price_rub = t["price_rub"]
+                        try:
+                            price_usdt = round(price_rub / 80.0, 2)
+                            invoice = await cryptopay.create_invoice(asset="USDT", amount=price_usdt, payload=f"vpn_{message.from_user.id}_{days}_{tier}")
+                            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🪙 Оплатить (CryptoBot)", url=invoice.bot_invoice_url)]])
+                            await message.answer(
+                                f"🧾 <b>Счет на оплату криптовалютой</b>\n\n"
+                                f"Тариф: <b>{t['name']} — {t['period']}</b> ({t['devices']} устр.)\n"
+                                f"Сумма: <b>{price_usdt} USDT</b> (~{price_rub} руб)\n\n"
+                                f"Нажмите кнопку ниже для оплаты.",
+                                reply_markup=kb, parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.error(f"CryptoPay error in start link: {e}")
+                            await message.answer("Ошибка создания платежа CryptoPay.")
                         return
             elif args[1] == "support":
                 await state.set_state(SupportStates.waiting_for_message)
@@ -918,7 +955,13 @@ async def process_gift_recipient(message: Message, state: FSMContext):
 async def process_tariffs(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(gift_recipient_id=None)
-    text = "💎 <b>Выберите подходящий тариф:</b>\n\nЧем дольше период, тем выгоднее цена."
+    text = (
+        "💎 <b>Купить подписку</b>\n\n"
+        "Сначала выберите <b>период</b>, затем — <b>тариф</b> по количеству устройств:\n\n"
+        "📦 <b>Базовый</b> — 3 устройства\n"
+        "⭐ <b>Плюс</b> — 5 устройств\n"
+        "👨‍👩‍👧‍👦 <b>Семейный</b> — 8 устройств"
+    )
     await safe_edit(callback.message, text, reply_markup=get_tariffs_kb(callback.from_user.id), parse_mode="HTML")
 
 
@@ -1085,26 +1128,47 @@ async def process_gift_recipient(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=get_tariffs_kb(target_id), parse_mode="HTML")
     await state.set_state(None)
 
-# Обработка выбора тарифа
-@dp.callback_query(F.data.startswith("select_tariff_"))
-async def process_select_tariff(callback: CallbackQuery):
-    days = int(callback.data.split("_")[2])
-    
-    prices = {
-        30: 99,
-        90: 249,
-        365: 899
-    }
-    price = prices.get(days, 0)
+# Обработка выбора периода (шаг 1)
+@dp.callback_query(F.data.startswith("period_"))
+async def process_period_select(callback: CallbackQuery):
+    days = int(callback.data.split("_")[1])
+    period_names = {30: "1 месяц", 90: "3 месяца", 365: "12 месяцев"}
+    period = period_names.get(days, f"{days} дней")
     
     text = (
+        f"📅 <b>{period}</b>\n\n"
+        "Выберите тариф:\n\n"
+        "📦 <b>Базовый</b> — 3 устройства\n"
+        "⭐ <b>Плюс</b> — 5 устройств\n"
+        "👨‍👩‍👧‍👦 <b>Семейный</b> — 8 устройств"
+    )
+    
+    await safe_edit(callback.message, text, reply_markup=get_tier_kb(days), parse_mode="HTML")
+    await callback.answer()
+
+# Обработка выбора тарифа (шаг 2: тир внутри периода)
+@dp.callback_query(F.data.startswith("tariff_"))
+async def process_tariff_select(callback: CallbackQuery):
+    parts = callback.data.split("_")
+    days = int(parts[1])
+    tier = parts[2]
+    
+    t = get_tariff(days, tier)
+    if not t:
+        await callback.answer("Ошибка тарифа.", show_alert=True)
+        return
+    
+    emoji = TIER_EMOJI.get(tier, "")
+    text = (
         f"🛒 <b>Оформление подписки</b>\n\n"
-        f"Тариф: <b>{days} дней</b>\n"
-        f"Стоимость: <b>{price} ₽</b> (или эквивалент)\n\n"
+        f"Тариф: {emoji} <b>{t['name']}</b>\n"
+        f"Период: <b>{t['period']}</b>\n"
+        f"Устройства: <b>{t['devices']}</b>\n"
+        f"Стоимость: <b>{t['price_rub']} ₽</b>\n\n"
         f"Выберите удобный способ оплаты:"
     )
     
-    await callback.message.edit_text(text, reply_markup=get_payment_method_kb(days), parse_mode="HTML")
+    await safe_edit(callback.message, text, reply_markup=get_payment_method_kb(days, tier), parse_mode="HTML")
     await callback.answer()
 
 
@@ -1115,35 +1179,32 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Оплата картой временно недоступна. Пожалуйста, обратитесь к администратору.", show_alert=True)
         return
 
-    days = int(callback.data.split("_")[2])
-    prices_map = {
-        30: 99,
-        90: 249,
-        365: 899
-    }
-    price = prices_map.get(days, 0)
-
-    if not price:
+    parts = callback.data.split("_")  # buy_yoomoney_30_base
+    days = int(parts[2])
+    tier = parts[3] if len(parts) > 3 else "base"
+    
+    t = get_tariff(days, tier)
+    if not t:
         await callback.answer("Ошибка тарифа.", show_alert=True)
         return
+    price = t["price_rub"]
 
     data = await state.get_data()
     recipient_id = data.get("gift_recipient_id")
     if recipient_id:
-        label = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+        label = f"vpn_gift_{recipient_id}_{days}_{tier}_{callback.from_user.id}"
     else:
-        label = f"vpn_{callback.from_user.id}_{days}"
+        label = f"vpn_{callback.from_user.id}_{days}_{tier}"
 
     try:
         import uuid as _uuid
         from yookassa import Payment as YKPayment
-        # Синхронный вызов -> в поток
         payment = await asyncio.to_thread(YKPayment.create, {
             "amount": {"value": f"{price}.00", "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": "https://t.me/guepardvpn_bot"},
             "capture": True,
             "save_payment_method": True,
-            "description": f"Подписка GuepardVPN на {days} дней",
+            "description": f"GuepardVPN {t['name']} — {t['period']} ({t['devices']} устр.)",
             "metadata": {"label": label}
         }, str(_uuid.uuid4()))
 
@@ -1160,7 +1221,7 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.edit_text(
             f"🧾 <b>Счет на оплату (Банковская карта / СБП)</b>\n\n"
-            f"Тариф: <b>{days} дней</b>\n"
+            f"Тариф: <b>{t['name']} — {t['period']}</b> ({t['devices']} устр.)\n"
             f"Сумма: <b>{price} руб</b>\n\n"
             f"Нажмите кнопку ниже для безопасной оплаты. После успешной оплаты подписка активируется автоматически в течение минуты.",
             reply_markup=kb, parse_mode="HTML"
@@ -1175,34 +1236,30 @@ async def process_buy_yookassa(callback: CallbackQuery, state: FSMContext):
 # Обработка нажатия на тариф Telegram Stars
 @dp.callback_query(F.data.startswith("buy_stars_"))
 async def process_buy_stars(callback: CallbackQuery, state: FSMContext):
-    days = int(callback.data.split("_")[2])
+    parts = callback.data.split("_")  # buy_stars_30_base
+    days = int(parts[2])
+    tier = parts[3] if len(parts) > 3 else "base"
 
-    # Цены в Звездах (XTR)
-    prices_map = {
-        30: 55,
-        90: 139,
-        365: 495
-    }
-
-    price = prices_map.get(days, 55)
-
-    data = await state.get_data()
-    recipient_id = data.get("gift_recipient_id")
+    t = get_tariff(days, tier)
+    if not t:
+        await callback.answer("Ошибка тарифа.", show_alert=True)
+        return
+    price = t["price_stars"]
 
     data = await state.get_data()
     recipient_id = data.get("gift_recipient_id")
     if recipient_id:
-        payload = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+        payload = f"vpn_gift_{recipient_id}_{days}_{tier}_{callback.from_user.id}"
     else:
-        payload = f"vpn_sub_{days}"
+        payload = f"vpn_sub_{days}_{tier}"
 
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
-        title=f"Подписка GuepardVPN на {days} дней",
-        description="Безлимитный трафик, высокая скорость и надежная защита ваших данных.",
+        title=f"GuepardVPN {t['name']} — {t['period']}",
+        description=f"{t['devices']} устройств. Безлимитный трафик, высокая скорость.",
         payload=payload,
-        provider_token="",  # Для Telegram Stars токен провайдера должен быть пустым
-        currency="XTR",  # Код валюты Telegram Stars
+        provider_token="",
+        currency="XTR",
         prices=[LabeledPrice(label="VPN Подписка", amount=price)]
     )
     await callback.answer()
@@ -1215,36 +1272,30 @@ async def process_buy_crypto(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Оплата криптовалютой временно недоступна.", show_alert=True)
         return
 
-    days = int(callback.data.split("_")[2])
-    prices = {
-        30: 99,
-        90: 249,
-        365: 899
-    }
-    price_rub = prices.get(days, 0)
+    parts = callback.data.split("_")  # buy_crypto_30_base
+    days = int(parts[2])
+    tier = parts[3] if len(parts) > 3 else "base"
     
-    if not price_rub:
+    t = get_tariff(days, tier)
+    if not t:
         await callback.answer("Ошибка тарифа.", show_alert=True)
         return
+    price_rub = t["price_rub"]
         
     try:
-        # Для упрощения 100 рублей = 1 USDT
         price_usdt = round(price_rub / 80.0, 2)
         
         data = await state.get_data()
         recipient_id = data.get("gift_recipient_id")
-        
-        data = await state.get_data()
-        recipient_id = data.get("gift_recipient_id")
         if recipient_id:
-            payload = f"vpn_gift_{recipient_id}_{days}_{callback.from_user.id}"
+            payload = f"vpn_gift_{recipient_id}_{days}_{tier}_{callback.from_user.id}"
         else:
-            payload = f"vpn_{callback.from_user.id}_{days}"
+            payload = f"vpn_{callback.from_user.id}_{days}_{tier}"
         
         invoice = await cryptopay.create_invoice(
             asset='USDT', 
             amount=price_usdt, 
-            description=f"Подписка GuepardVPN на {days} дней",
+            description=f"GuepardVPN {t['name']} — {t['period']}",
             payload=payload
         )
         
@@ -1255,14 +1306,14 @@ async def process_buy_crypto(callback: CallbackQuery, state: FSMContext):
         
         await callback.message.edit_text(
             f"🧾 <b>Счет на оплату криптовалютой</b>\n\n"
-            f"Тариф: <b>{days} дней</b>\n"
+            f"Тариф: <b>{t['name']} — {t['period']}</b> ({t['devices']} устр.)\n"
             f"Сумма: <b>{price_usdt} USDT</b> (~{price_rub} руб)\n\n"
-            f"Нажмите кнопку ниже для перехода к оплате в CryptoBot. После успешной оплаты подписка активируется автоматически.",
+            f"Нажмите кнопку ниже для перехода к оплате в CryptoBot.",
             reply_markup=kb, parse_mode="HTML"
         )
         await callback.answer()
     except Exception as e:
-        logger.error(f"Ошибка создания счета CryptoBot (Native): {e}")
+        logger.error(f"Ошибка создания счета CryptoBot: {e}")
         await callback.answer("Ошибка при создании счета.", show_alert=True)
 
 
@@ -1319,9 +1370,15 @@ async def process_profile(callback: CallbackQuery):
                 sub_link = format_sub_link(client_uuid)
                 key_text = f"<code>{sub_link}</code>\n<i>* Нажмите, чтобы скопировать</i>"
 
+    # Показываем тариф
+    user_tier = db.get_tariff_tier(callback.from_user.id)
+    tier_emoji = TIER_EMOJI.get(user_tier, "")
+    tier_name = TIER_NAMES.get(user_tier, "Базовый")
+
     text = (
         f"👤 <b>Личный кабинет</b>\n\n"
         f"ID: <code>{callback.from_user.id}</code>\n\n"
+        f"Тариф: {tier_emoji} <b>{tier_name}</b>\n"
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ\n"
@@ -1348,7 +1405,7 @@ async def process_toggle_auto_renew(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_devices")
 async def process_devices(callback: CallbackQuery):
-    telegram_id = callback.fromuser.id if hasattr(callback, "fromuser") else callback.from_user.id
+    telegram_id = callback.from_user.id
     devices = await panel_api.get_client_devices(telegram_id)
     
     if not devices:
@@ -1360,7 +1417,8 @@ async def process_devices(callback: CallbackQuery):
         await callback.answer()
         return
 
-    text = f"📱 <b>Отслеживание устройств (Макс 3)</b>\n\nПривязано: {len(devices)}/3\n\n"
+    device_limit = db.get_user_device_limit(telegram_id) or 3
+    text = f"📱 <b>Отслеживание устройств (Макс {device_limit})</b>\n\nПривязано: {len(devices)}/{device_limit}\n\n"
     keyboard = []
     
     for i, dev in enumerate(devices):
@@ -1426,13 +1484,7 @@ async def process_reset_ips(callback: CallbackQuery):
     if new_sub_url:
         db.update_uuid(telegram_id, new_sub_url)
         db.clear_user_devices(telegram_id)
-        full_sub_link = new_sub_url
-        if full_sub_link.startswith("/"):
-            proxy_base = os.getenv("PROXY_URL_BASE")
-            if proxy_base and not full_sub_link.startswith("/api/sub/"):
-                full_sub_link = f"{proxy_base.rstrip('/')}{full_sub_link}"
-            else:
-                full_sub_link = f"{panel_api.PANEL_URL.rstrip('/')}{full_sub_link}"
+        full_sub_link = format_sub_link(new_sub_url)
                 
         text = (
             "🔄 <b>Ваш ключ подписки был изменен!</b>\n\n"
@@ -1665,17 +1717,19 @@ async def process_successful_payment(message: Message):
     payload = message.successful_payment.invoice_payload
     is_gift = False
     giver_username = None
+    tier = "base"
     
     if payload.startswith("vpn_gift_"):
         parts = payload.split("_")
+        # vpn_gift_{recipient}_{days}_{tier}_{buyer}
         telegram_id = int(parts[2])
         days = int(parts[3])
-        buyer_id = int(parts[4])
+        tier = parts[4] if len(parts) > 5 else "base"
+        buyer_id = int(parts[-1])
         is_gift = True
         giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
         
         try:
-            bot_info = await bot.get_me()
             await bot.send_message(
                 chat_id=buyer_id,
                 text=f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{telegram_id}</code>!", parse_mode="HTML"
@@ -1683,10 +1737,20 @@ async def process_successful_payment(message: Message):
         except:
             pass
     else:
-        days = int(payload.split("_")[2])
+        parts = payload.split("_")
+        # vpn_sub_{days}_{tier}
+        days = int(parts[2])
+        tier = parts[3] if len(parts) > 3 else "base"
         telegram_id = message.from_user.id
 
     await grant_subscription_and_sync(telegram_id, days)
+    
+    # Обновляем тир и лимит устройств
+    t = get_tariff(days, tier)
+    if t:
+        db.set_tariff_tier(telegram_id, tier)
+        db.set_user_device_limit(telegram_id, t["devices"])
+        await panel_api.update_hwid_device_limit(telegram_id, t["devices"])
 
     # Проверяем реферала и выдаем бонусы
     referrer_id = db.get_referrer(telegram_id)
@@ -1892,20 +1956,25 @@ async def check_yookassa_invoices():
             parts = label.split("_")
             is_gift = False
             giver_username = None
+            tier = "base"
 
-            if parts[1] == "gift" and len(parts) == 5:
+            if parts[1] == "gift":
+                # vpn_gift_{recipient}_{days}_{tier}_{buyer}
                 user_id = int(parts[2])
                 days = int(parts[3])
-                buyer_id = int(parts[4])
+                tier = parts[4] if len(parts) > 5 else "base"
+                buyer_id = int(parts[-1])
                 is_gift = True
                 giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
                 try:
                     await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
                 except:
                     pass
-            elif len(parts) == 3:
+            elif len(parts) >= 3:
+                # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
                 user_id = int(parts[1])
                 days = int(parts[2])
+                tier = parts[3] if len(parts) > 3 else "base"
             else:
                 continue
 
@@ -1914,6 +1983,13 @@ async def check_yookassa_invoices():
 
             # Выдаем подписку и синхронизируем
             await grant_subscription_and_sync(user_id, days)
+            
+            # Обновляем тир и лимит устройств
+            t = get_tariff(days, tier)
+            if t:
+                db.set_tariff_tier(user_id, tier)
+                db.set_user_device_limit(user_id, t["devices"])
+                await panel_api.update_hwid_device_limit(user_id, t["devices"])
 
             # Сохраняем метод оплаты для автопродления (только для обычного платежа, не подарка)
             if not is_gift:
@@ -1964,9 +2040,16 @@ async def auto_renew_subscriptions():
     for user_id, method_id, days, sub_end_str in users:
         if not days:
             continue
-        prices_map = {30: 99, 90: 249, 365: 899}
-        price = prices_map.get(days, 99)
-        label = f"vpn_{user_id}_{days}"
+        # Получаем тир пользователя для правильной цены
+        tier = db.get_tariff_tier(user_id)
+        t = get_tariff(days, tier)
+        if t:
+            price = t["price_rub"]
+        else:
+            # Фоллбэк на базовые цены
+            prices_map = {30: 99, 90: 249, 365: 899}
+            price = prices_map.get(days, 99)
+        label = f"vpn_{user_id}_{days}_{tier}"
 
         try:
             # ЮKassa синхронная, запускаем в потоке с таймаутом
@@ -2064,20 +2147,25 @@ async def check_cryptopay_invoices():
                 
                 is_gift = False
                 giver_username = None
+                tier = "base"
                 
-                if parts[1] == "gift" and len(parts) == 5:
+                if parts[1] == "gift":
+                    # vpn_gift_{recipient}_{days}_{tier}_{buyer}
                     user_id = int(parts[2])
                     days = int(parts[3])
-                    buyer_id = int(parts[4])
+                    tier = parts[4] if len(parts) > 5 else "base"
+                    buyer_id = int(parts[-1])
                     is_gift = True
                     giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
                     try:
                         await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
                     except:
                         pass
-                elif len(parts) == 3:
+                elif len(parts) >= 3:
+                    # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
                     user_id = int(parts[1])
                     days = int(parts[2])
+                    tier = parts[3] if len(parts) > 3 else "base"
                 else:
                     continue
                     
@@ -2092,6 +2180,13 @@ async def check_cryptopay_invoices():
                     
                 # Выдаем подписку и синхронизируем
                 await grant_subscription_and_sync(user_id, days)
+
+                # Обновляем тир и лимит устройств
+                t = get_tariff(days, tier)
+                if t:
+                    db.set_tariff_tier(user_id, tier)
+                    db.set_user_device_limit(user_id, t["devices"])
+                    await panel_api.update_hwid_device_limit(user_id, t["devices"])
 
                 # Рефералка
                 referrer_id = db.get_referrer(user_id)

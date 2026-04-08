@@ -40,13 +40,7 @@ if (pEnd && pEnd !== 'None') {
 }
 
 if (pUuid && pUuid !== 'None') {
-    // We assume the bot passes the full vless link or we construct it.
-    // If bot passes uuid, we construct a dummy vless link or the bot passes the full link.
-    // Let's assume the bot passes the panel URL hostname.
-    const panelHost = "sub.guepardvpn.top:9684";
-    const pbk = "xxx"; // Needs Reality public key if we building VLESS. 
-    // It's better if bot passes a direct sub link
-    keyEl.value = pUuid; // the bot will pass the full sub link in the uuid param
+    keyEl.value = pUuid;
 } else {
     keyEl.value = 'Подписка не активна';
 }

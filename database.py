@@ -67,6 +67,10 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN notified_zero_traffic INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN tariff_tier TEXT DEFAULT 'base'")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -324,6 +328,28 @@ def save_payment_method(telegram_id: int, method_id: str, days: int):
         "UPDATE users SET saved_payment_method_id = ?, last_tariff_days = ?, auto_renew = 1 WHERE telegram_id = ?",
         (method_id, days, telegram_id)
     )
+    conn.commit()
+    conn.close()
+
+
+def get_tariff_tier(telegram_id: int) -> str:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT tariff_tier FROM users WHERE telegram_id = ?", (telegram_id,))
+        result = cursor.fetchone()
+        conn.close()
+        if result and result[0]:
+            return result[0]
+    except sqlite3.OperationalError:
+        conn.close()
+    return 'base'
+
+
+def set_tariff_tier(telegram_id: int, tier: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET tariff_tier = ? WHERE telegram_id = ?", (tier, telegram_id))
     conn.commit()
     conn.close()
 
