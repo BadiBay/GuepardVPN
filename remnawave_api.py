@@ -403,17 +403,47 @@ async def get_client_stats(telegram_id: int) -> float:
                     user_full = raw.get("response", raw) if isinstance(raw, dict) else raw
 
                     logger.info(f"[STATS] user_full keys: {list(user_full.keys()) if isinstance(user_full, dict) else type(user_full)}")
+                    logger.info(f"[STATS] userTraffic value: {user_full.get('userTraffic')}")
 
-                    used_bytes = (
-                        user_full.get("usedTraffic") or
-                        user_full.get("used_traffic") or
-                        user_full.get("totalUsedTraffic") or
-                        user_full.get("usedBytes") or
-                        (user_full.get("up", 0) + user_full.get("down", 0)) or
-                        (user_full.get("uplink", 0) + user_full.get("downlink", 0)) or
-                        0
-                    )
-                    logger.info(f"[STATS] used_bytes from full profile: {used_bytes}")
+                    # userTraffic может быть объектом, списком или числом
+                    user_traffic = user_full.get("userTraffic")
+                    used_bytes = 0
+
+                    if isinstance(user_traffic, (int, float)):
+                        used_bytes = user_traffic
+                    elif isinstance(user_traffic, dict):
+                        used_bytes = (
+                            user_traffic.get("usedBytes") or
+                            user_traffic.get("used") or
+                            user_traffic.get("usedTraffic") or
+                            user_traffic.get("totalUsed") or
+                            (user_traffic.get("up", 0) + user_traffic.get("down", 0)) or
+                            (user_traffic.get("uplink", 0) + user_traffic.get("downlink", 0)) or
+                            0
+                        )
+                    elif isinstance(user_traffic, list) and user_traffic:
+                        # Суммируем трафик по всем элементам списка
+                        for entry in user_traffic:
+                            if isinstance(entry, dict):
+                                used_bytes += (
+                                    entry.get("usedBytes") or
+                                    entry.get("used") or
+                                    entry.get("bytes") or
+                                    (entry.get("up", 0) + entry.get("down", 0)) or
+                                    0
+                                )
+                    
+                    # Фоллбэк на другие поля из профиля
+                    if not used_bytes:
+                        used_bytes = (
+                            user_full.get("usedTraffic") or
+                            user_full.get("used_traffic") or
+                            user_full.get("totalUsedTraffic") or
+                            user_full.get("usedBytes") or
+                            0
+                        )
+
+                    logger.info(f"[STATS] used_bytes final: {used_bytes}")
                     if used_bytes:
                         return round(float(used_bytes) / (1024 ** 3), 2)
         except Exception as e:
