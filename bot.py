@@ -135,17 +135,16 @@ from urllib.parse import urlparse, urlencode
 def format_sub_link(client_uuid: str | None) -> str:
     if not client_uuid or client_uuid == 'None':
         return 'None'
-    import remnawave_api as panel_api
     from urllib.parse import urlparse
 
     path = client_uuid
     if client_uuid.startswith("http"):
         path = urlparse(client_uuid).path
         
-    if not path.startswith("/"):
-        path = "/" + path
+    # Extract the UUID part from paths like /api/sub/TOKEN or /TOKEN
+    token = path.strip().split('/')[-1]
         
-    return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
+    return f"https://subs.guepardvpn.top/{token}"
 
 
 def get_webapp_url(user_id: int | None = None) -> str:

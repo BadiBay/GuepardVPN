@@ -294,6 +294,11 @@ async def clear_client_ips(telegram_id: int) -> str | None:
 
         url = f"{PANEL_URL}/api/users/{uuid}/actions/revoke"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        
+        # Сначала удаляем все устройства
+        del_url = f"{PANEL_URL}/api/hwid/devices/delete-all"
+        async with session.post(del_url, json={"userUuid": uuid}, headers=headers):
+            pass # Игнорируем ошибки при удалении списка устройств
 
         async with session.post(url, headers=headers) as resp:
             if resp.status in (200, 201):
