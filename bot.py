@@ -287,6 +287,31 @@ async def send_success_message(user_id: int, days: int, is_gift: bool = False, g
     except Exception as e:
         logger.error(f"Не удалось отправить уведомление об оплате {user_id}: {e}")
 
+async def grant_subscription_and_sync(user_id: int, days: int):
+    """Добавляет подписку в БД и синхронизирует с панелью RemnaWave."""
+    db.add_subscription(user_id, days)
+    
+    user_data = db.get_user(user_id)
+    if user_data:
+        sub_end_str = user_data[1]
+        client_uuid = user_data[2]
+        
+        if sub_end_str:
+            try:
+                dt = datetime.strptime(sub_end_str, "%Y-%m-%d %H:%M:%S")
+                expiry_ms = int(dt.timestamp() * 1000)
+                
+                # Если UUID есть, просто обновляем дату
+                if client_uuid:
+                    await panel_api.update_client_expiry(client_uuid, user_id, expiry_ms)
+                else:
+                    # Если UUID еще нет (новый юзер), создаем его
+                    new_uuid = await panel_api.add_client(user_id, expiry_ms)
+                    if new_uuid:
+                        db.update_uuid(user_id, new_uuid)
+            except Exception as e:
+                logger.error(f"Error syncing subscription for {user_id}: {e}")
+
 async def send_welcome_message(chat_id: int, user_id: int):
     user_data = db.get_user(user_id)
     is_active = False
@@ -1661,12 +1686,12 @@ async def process_successful_payment(message: Message):
         days = int(payload.split("_")[2])
         telegram_id = message.from_user.id
 
-    db.add_subscription(telegram_id, days)
+    await grant_subscription_and_sync(telegram_id, days)
 
     # Проверяем реферала и выдаем бонусы
     referrer_id = db.get_referrer(telegram_id)
     if referrer_id:
-        db.add_subscription(referrer_id, 3)
+        await grant_subscription_and_sync(referrer_id, 3)
         try:
             await bot.send_message(
                 chat_id=referrer_id,
@@ -1675,16 +1700,6 @@ async def process_successful_payment(message: Message):
             )
         except Exception as e:
             print(f"Не удалось отправить уведомление рефереру {referrer_id}: {e}")
-
-    # Проверяем, есть ли уже у пользователя UUID
-    user_data = db.get_user(telegram_id)
-    client_uuid = user_data[2] if user_data else None
-
-    # Если ключа еще нет, создаем его в панели
-    if not client_uuid:
-        new_uuid = await panel_api.add_client(telegram_id)
-        if new_uuid:
-            db.update_uuid(telegram_id, new_uuid)
 
     await send_success_message(telegram_id, days, is_gift=is_gift, giver_username=giver_username)
 
@@ -1897,8 +1912,8 @@ async def check_yookassa_invoices():
             logger.info(f"Найден оплаченный платеж ЮKassa {payment_id}: {payment.amount.value} руб от {user_id}")
             db.mark_payment_processed(payment_id)
 
-            # Выдаем подписку
-            db.add_subscription(user_id, days)
+            # Выдаем подписку и синхронизируем
+            await grant_subscription_and_sync(user_id, days)
 
             # Сохраняем метод оплаты для автопродления (только для обычного платежа, не подарка)
             if not is_gift:
@@ -1913,7 +1928,7 @@ async def check_yookassa_invoices():
             # Рефералка
             referrer_id = db.get_referrer(user_id)
             if referrer_id:
-                db.add_subscription(referrer_id, 3)
+                await grant_subscription_and_sync(referrer_id, 3)
                 try:
                     await bot.send_message(
                         chat_id=referrer_id,
@@ -1922,14 +1937,6 @@ async def check_yookassa_invoices():
                     )
                 except Exception:
                     pass
-
-            # Ключ
-            user_data = db.get_user(user_id)
-            client_uuid = user_data[2] if user_data else None
-            if not client_uuid:
-                new_uuid = await panel_api.add_client(user_id)
-                if new_uuid:
-                    db.update_uuid(user_id, new_uuid)
 
             await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
         logger.info("Проверка платежей ЮKassa завершена.")
@@ -2083,13 +2090,13 @@ async def check_cryptopay_invoices():
                 except Exception as e:
                     logger.error(f"Ошибка удаления инвойса: {e}")
                     
-                # Выдаем подписку
-                db.add_subscription(user_id, days)
+                # Выдаем подписку и синхронизируем
+                await grant_subscription_and_sync(user_id, days)
 
                 # Рефералка
                 referrer_id = db.get_referrer(user_id)
                 if referrer_id:
-                    db.add_subscription(referrer_id, 3)
+                    await grant_subscription_and_sync(referrer_id, 3)
                     try:
                         await bot.send_message(
                             chat_id=referrer_id,
@@ -2098,14 +2105,6 @@ async def check_cryptopay_invoices():
                         )
                     except Exception:
                         pass
-                
-                # Ключ
-                user_data = db.get_user(user_id)
-                client_uuid = user_data[2] if user_data else None
-                if not client_uuid:
-                    new_uuid = await panel_api.add_client(user_id)
-                    if new_uuid:
-                        db.update_uuid(user_id, new_uuid)
 
                 await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
