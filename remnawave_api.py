@@ -395,9 +395,14 @@ async def get_client_stats(telegram_id: int) -> float:
         # Шаг 2: Полный профиль через GET /api/users/{uuid} — содержит трафик
         try:
             async with session.get(f"{PANEL_URL}/api/users/{uuid}", headers=headers) as resp:
+                raw_text = await resp.text()
+                logger.info(f"[STATS] GET /api/users/{uuid} status={resp.status} body={raw_text[:800]}")
                 if resp.status == 200:
-                    raw = await resp.json()
+                    import json as _json
+                    raw = _json.loads(raw_text)
                     user_full = raw.get("response", raw) if isinstance(raw, dict) else raw
+
+                    logger.info(f"[STATS] user_full keys: {list(user_full.keys()) if isinstance(user_full, dict) else type(user_full)}")
 
                     used_bytes = (
                         user_full.get("usedTraffic") or
@@ -408,6 +413,7 @@ async def get_client_stats(telegram_id: int) -> float:
                         (user_full.get("uplink", 0) + user_full.get("downlink", 0)) or
                         0
                     )
+                    logger.info(f"[STATS] used_bytes from full profile: {used_bytes}")
                     if used_bytes:
                         return round(float(used_bytes) / (1024 ** 3), 2)
         except Exception as e:
