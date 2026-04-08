@@ -209,10 +209,10 @@ async def update_client_expiry(client_uuid: str, telegram_id: int, expiry_time_m
         if not uuid:
             return False
 
-        url = f"{PANEL_URL}/api/users/{uuid}"
+        url = f"{PANEL_URL}/api/users"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         
-        payload = {"status": "ACTIVE"}
+        payload = {"username": m_user, "status": "ACTIVE"}
         from datetime import datetime, timezone, timedelta
         if expiry_time_ms > 0:
             expire = int(expiry_time_ms / 1000)
@@ -254,19 +254,9 @@ async def update_hwid_device_limit(telegram_id: int, limit: int) -> bool:
             return False
 
         m_user = get_m_username(telegram_id)
-        user_data = await resolve_user(m_user, token, session)
-        if not user_data:
-            return False
-            
-        uuid = user_data.get("uuid")
-        if not uuid:
-            return False
-
-        url = f"{PANEL_URL}/api/users/{uuid}"
+        url = f"{PANEL_URL}/api/users"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        
-        payload = {"hwidDeviceLimit": limit}
-
+        payload = {"username": m_user, "hwidDeviceLimit": limit}
         async with session.patch(url, json=payload, headers=headers) as resp:
             return resp.status in (200, 201)
     except Exception as e:
