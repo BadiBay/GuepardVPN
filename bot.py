@@ -128,180 +128,6 @@ dp.callback_query.middleware(ThrottlingMiddleware())
 db.init_db()
 
 
-# --- PROXY SERVER LOGIC ---
-def extract_hwid(request: web.Request) -> tuple[str, str, str, str, bool]:
-    user_agent = request.headers.get("User-Agent", "Unknown")
-    x_device_id = request.headers.get("X-Device-Id")
-    x_device_model = request.headers.get("X-Device-Model", "Unknown")
-    x_device_os = request.headers.get("X-Device-Os", "Unknown")
-    
-    ua_lower = user_agent.lower()
-    
-    # Список известных VPN-клиентов
-    vpn_clients = ["v2rayNG", "v2raytun", "Shadowrocket", "V2Box", "Happ/", "Hiddify", "CFNetwork", "Darwin"]
-    is_vpn_client = any(client.lower() in ua_lower for client in vpn_clients) or x_device_id
-    
-    # Список признаков браузера
-    browser_keywords = ["Mozilla", "Chrome", "Safari", "Edge", "Opera", "YaBrowser"]
-    is_likely_browser = any(k.lower() in ua_lower for k in browser_keywords)
-    
-    # Если это браузер и НЕ ЯВНЫЙ VPN-клиент, помечаем как браузер
-    is_browser = is_likely_browser and not is_vpn_client
-
-    if x_device_id:
-        return x_device_id, x_device_model, x_device_os, user_agent, False
-    
-    # По умолчанию
-    hwid = user_agent[:100]
-    model = "VPN Client"
-    platform = "Unknown"
-    
-    # 1. Попытка специфичного парсинга по форматам клиентов
-    if "v2raytun" in ua_lower:
-        model = "v2rayTun"
-        # v2raytun/ios/1.0.0/uuid или v2raytun/android/...
-        parts = user_agent.split("/")
-        for p in parts:
-            pl = p.lower()
-            if pl == "ios": platform = "iOS"
-            elif pl == "android": platform = "Android"
-        if len(parts) >= 4:
-            hwid = parts[3]
-            
-    elif "hiddify" in ua_lower or "happ/" in ua_lower:
-        model = "Hiddify Client"
-        parts = user_agent.split("/")
-        if len(parts) >= 4:
-            platform = parts[2].capitalize()
-            hwid = parts[3]
-            
-    elif "v2rayng" in ua_lower:
-        model = "v2rayNG"
-        platform = "Android"
-        
-    elif "shadowrocket" in ua_lower:
-        model = "Shadowrocket"
-        platform = "iOS"
-        
-    elif "v2box" in ua_lower:
-        model = "V2Box"
-        platform = "iOS"
-        
-    # 2. Если платформа все еще не определена, ищем по ключевым словам в UA
-    if platform == "Unknown":
-        if any(kw in ua_lower for kw in ["iphone", "ipad", "ipod", "ios"]):
-            platform = "iOS"
-        elif "android" in ua_lower:
-            platform = "Android"
-        elif "windows" in ua_lower:
-            platform = "Windows"
-        elif any(kw in ua_lower for kw in ["macintosh", "macos", "darwin", "cfnetwork"]):
-            platform = "macOS/iOS"
-        elif "linux" in ua_lower:
-            platform = "Linux"
-
-    return hwid, model, platform, user_agent, is_browser
-
-
-async def handle_sub_request(request: web.Request):
-    uuid_path = request.match_info.get("uuid_path", "")
-    full_path = request.path
-    logger.info(f"--- Incoming Proxy Request ---")
-    logger.info(f"Path: {full_path}")
-    logger.info(f"UUID Fragment: {uuid_path}")
-
-    if not uuid_path:
-        logger.warning("Empty UUID fragment received")
-        return web.Response(status=404, text="Not Found")
-        
-    import sqlite3
-    conn = sqlite3.connect(db.DB_NAME)
-    cursor = conn.cursor()
-    # Ищем по частичному совпадению или по полному пути
-    cursor.execute("SELECT telegram_id, is_active FROM users WHERE uuid LIKE ?", (f"%{uuid_path}%",))
-    user_row = cursor.fetchone()
-    conn.close()
-    
-    telegram_id = user_row[0] if user_row else None
-    
-    if telegram_id:
-        logger.info(f"User identified: {telegram_id}")
-        hwid, model, platform, ua, is_browser = extract_hwid(request)
-        
-        if is_browser:
-            logger.info(f"Browser detected for User {telegram_id}, skipping device tracking.")
-        else:
-            device_count = db.get_device_count(telegram_id)
-            user_limit = db.get_user_device_limit(telegram_id)
-            
-            conn = sqlite3.connect(db.DB_NAME)
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM user_devices WHERE telegram_id = ? AND hwid = ?", (telegram_id, hwid))
-            device_exists = cursor.fetchone() is not None
-            conn.close()
-            
-            if not device_exists and device_count >= user_limit:
-                logger.warning(f"Device limit exceeded for User {telegram_id}. Limit: {user_limit}")
-                
-                # Уведомляем пользователя
-                asyncio.create_task(
-                    bot.send_message(
-                        chat_id=telegram_id,
-                        text=f"⚠️ <b>Внимание! При попытке подключиться достигнут лимит устройств.</b>\n\nВы пытаетесь использовать конфигурацию на {user_limit + 1}-ом устройстве, но ваше максимальное количество — {user_limit}.\nПожалуйста, удалите старые устройства (если нужно, переустановите подписку).",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Управление устройствами", callback_data="menu_devices")]]),
-                        parse_mode="HTML"
-                    )
-                )
-                
-                dummy_node = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?security=none&type=tcp#❌ Превышен лимит устройств (макс {user_limit})"
-                encoded = base64.b64encode(dummy_node.encode('utf-8')).decode('utf-8')
-                return web.Response(text=encoded, content_type="text/plain; charset=utf-8")
-                
-            db.add_or_update_device(telegram_id, hwid, model, platform, ua)
-    else:
-        logger.info(f"User NOT found in DB for path: {uuid_path}")
-
-
-    # Формируем целевой URL. 
-    base_url = panel_api.PANEL_URL.rstrip('/')
-    clean_uuid = uuid_path.lstrip('/')
-    
-    # Решение для Remnawave: конфиг лежит по пути /api/sub/UUID
-    if clean_uuid.startswith("api/sub/"):
-        target_url = f"{base_url}/{clean_uuid}"
-    elif clean_uuid.startswith("sub/"):
-        target_url = f"{base_url}/api/{clean_uuid}"
-    else:
-        target_url = f"{base_url}/api/sub/{clean_uuid}"
-    
-    logger.info(f"Forwarding to Panel: {target_url}")
-    
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host', 'connection']}
-    
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(target_url, headers=headers) as resp:
-                content = await resp.read()
-                logger.info(f"Panel Response: {resp.status}")
-                return web.Response(body=content, status=resp.status, headers=resp.headers)
-        except Exception as e:
-            logger.error(f"Proxy Forwarding Error: {e}")
-            return web.Response(status=500, text=f"Gateway Error: {str(e)}")
-
-
-
-async def run_proxy_server():
-    app = web.Application()
-    app.router.add_get('/{uuid_path:.*}', handle_sub_request)
-    
-    proxy_port = int(os.getenv("PROXY_PORT", "8080"))
-    proxy_host = os.getenv("PROXY_HOST", "0.0.0.0")
-    
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, proxy_host, proxy_port)
-    await site.start()
-    logger.info(f"Subscription Proxy Server started on http://{proxy_host}:{proxy_port}")
 # --- END PROXY LOGIC ---
 
 from urllib.parse import urlparse, urlencode
@@ -310,7 +136,6 @@ def format_sub_link(client_uuid: str | None) -> str:
     if not client_uuid or client_uuid == 'None':
         return 'None'
     import remnawave_api as panel_api
-    import os
     from urllib.parse import urlparse
 
     path = client_uuid
@@ -320,9 +145,6 @@ def format_sub_link(client_uuid: str | None) -> str:
     if not path.startswith("/"):
         path = "/" + path
         
-    proxy_base = os.getenv("PROXY_URL_BASE")
-    if proxy_base and not path.startswith("/api/sub"):
-        return f"{proxy_base.rstrip('/')}{path}"
     return f"{panel_api.PANEL_URL.rstrip('/')}{path}"
 
 
@@ -1498,11 +1320,11 @@ async def process_toggle_auto_renew(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_devices")
 async def process_devices(callback: CallbackQuery):
-    telegram_id = callback.from_user.id
-    devices = db.get_user_devices(telegram_id)
+    telegram_id = callback.fromuser.id if hasattr(callback, "fromuser") else callback.from_user.id
+    devices = await panel_api.get_client_devices(telegram_id)
     
     if not devices:
-        text = "📱 <b>Ваши устройства</b>\n\nВы еще не подключали ни одного устройства через ссылку подписки."
+        text = "📱 <b>Ваши устройства</b>\n\nВы еще не подключались ни с одного устройства."
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")]
         ])
@@ -1514,21 +1336,58 @@ async def process_devices(callback: CallbackQuery):
     keyboard = []
     
     for i, dev in enumerate(devices):
-        dev_id, hwid, model, platform, ua, created_at, updated_at = dev
+        hwid = dev.get("hwid", "N/A")
+        model = dev.get("deviceModel", "N/A")
+        platform = dev.get("platform", "N/A")
+        ua_full = dev.get("userAgent", "N/A")
+        
+        # Укорачиваем UA чтобы не засорять экран
+        if len(ua_full) > 30:
+            ua = ua_full[:27] + "..."
+        else:
+            ua = ua_full
+            
+        created_at = dev.get("createdAt", "N/A")
+        if created_at != "N/A" and "T" in created_at:
+            created_at = created_at.split(".")[0].replace("T", " ")
+            
         text += f"<b>{i+1}.</b>\n"
         text += f"📱 Модель: {model}\n"
         text += f"🧠 Платформа: {platform}\n"
-        text += f"🌐 User-Agent: {ua}\n"
-        text += f"⏱ Создано: {created_at}\n"
-        text += f"🔄 Обновлено: {updated_at}\n"
-        text += f"🔑 HWID: <code>{hwid}</code>\n\n"
+        text += f"🌐 Приложение: {ua}\n"
+        text += f"⏱ Подключено: {created_at}\n\n"
         
-    keyboard.append([InlineKeyboardButton(text="💥 Сбросить устройства (сменить ключ подписки)", callback_data="action_reset_ips")])
+        keyboard.append([InlineKeyboardButton(text=f"❌ Удалить {platform} ({model})", callback_data=f"rm_dev:{hwid[:30]}")])
+        
+    keyboard.append([InlineKeyboardButton(text="💥 Сбросить все (сменить ключ)", callback_data="action_reset_ips")])
     keyboard.append([InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")])
     kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("rm_dev:"))
+async def process_rm_dev(callback: CallbackQuery):
+    telegram_id = callback.from_user.id
+    hwid_short = callback.data.split(":")[1]
+    
+    # We need to find the full HWID by this prefix just in case it was truncated
+    import remnawave_api as panel_api
+    devices = await panel_api.get_client_devices(telegram_id)
+    full_hwid = hwid_short
+    for dev in devices:
+        if dev.get("hwid", "").startswith(hwid_short):
+            full_hwid = dev.get("hwid")
+            break
+            
+    success = await panel_api.delete_client_device(telegram_id, full_hwid)
+    if success:
+        await callback.answer("✅ Устройство отключено!", show_alert=True)
+    else:
+        await callback.answer("Ошибка при удалении устройства.", show_alert=True)
+        
+    await process_devices(callback)
+
 
 @dp.callback_query(F.data == "action_reset_ips")
 async def process_reset_ips(callback: CallbackQuery):
@@ -2277,8 +2136,6 @@ async def main():
     scheduler.add_job(check_zero_traffic_after_24h, trigger='interval', hours=1)
     scheduler.start()
 
-    # Start proxy server concurrently without blocking
-    asyncio.create_task(run_proxy_server())
 
     try:
         await dp.start_polling(bot)

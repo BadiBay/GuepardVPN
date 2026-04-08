@@ -122,6 +122,17 @@ async def add_client(telegram_id: int, expiry_time_ms: int = 0) -> str | None:
             "status": "ACTIVE"
         }
         
+        try:
+            async with session.get(f"{PANEL_URL}/api/internal-squads", headers=headers) as sq_resp:
+                if sq_resp.status == 200:
+                    sq_data = await sq_resp.json()
+                    sq_resp_body = sq_data.get('response', {})
+                    internal_squads = sq_resp_body.get('internalSquads', [])
+                    if internal_squads:
+                        payload["activeInternalSquads"] = [internal_squads[0]['uuid']]
+        except Exception as e:
+            logger.error(f"Error fetching internal squads: {e}")
+        
         # Получаем лимит устройств из БД
         import database as temp_db
         user_limit = temp_db.get_user_device_limit(telegram_id)
@@ -303,6 +314,62 @@ async def clear_client_ips(telegram_id: int) -> str | None:
     except Exception as e:
         logger.error(f"Error in clear_client_ips: {e}")
         return None
+
+async def get_client_devices(telegram_id: int) -> list:
+    try:
+        session = await get_session()
+        token = await get_token()
+        if not token:
+            return []
+            
+        m_user = get_m_username(telegram_id)
+        user_data = await resolve_user(m_user, token, session)
+        if not user_data:
+            return []
+            
+        uuid = user_data.get("uuid")
+        if not uuid:
+            return []
+            
+        url = f"{PANEL_URL}/api/hwid/devices/{uuid}"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        
+        async with session.get(url, headers=headers) as resp:
+            if resp.status == 200:
+                raw = await resp.json()
+                response_data = raw.get("response", {})
+                devices = response_data.get("devices", [])
+                return devices
+        return []
+    except Exception as e:
+        logger.error(f"Error getting client HWID devices: {e}")
+        return []
+
+async def delete_client_device(telegram_id: int, hwid: str) -> bool:
+    try:
+        session = await get_session()
+        token = await get_token()
+        if not token:
+            return False
+            
+        m_user = get_m_username(telegram_id)
+        user_data = await resolve_user(m_user, token, session)
+        if not user_data:
+            return False
+            
+        uuid = user_data.get("uuid")
+        if not uuid:
+            return False
+            
+        url = f"{PANEL_URL}/api/hwid/devices/delete"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        payload = {"userUuid": uuid, "hwid": hwid}
+        
+        async with session.post(url, json=payload, headers=headers) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        logger.error(f"Error deleting HWID device: {e}")
+        return False
 
 
 async def get_client_stats(telegram_id: int) -> float:
