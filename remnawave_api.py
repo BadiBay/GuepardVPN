@@ -413,6 +413,7 @@ async def get_client_stats(telegram_id: int) -> float:
                         used_bytes = user_traffic
                     elif isinstance(user_traffic, dict):
                         used_bytes = (
+                            user_traffic.get("usedTrafficBytes") or
                             user_traffic.get("usedBytes") or
                             user_traffic.get("used") or
                             user_traffic.get("usedTraffic") or
