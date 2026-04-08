@@ -388,28 +388,39 @@ async def get_client_stats(telegram_id: int) -> float:
         user_data = await resolve_user(m_user, token, session)
         if not user_data:
             return 0.0
-            
+
         uuid = user_data.get("uuid")
         if not uuid:
             return 0.0
 
+        # DEBUG: логируем все поля из профиля пользователя
+        logger.info(f"[STATS DEBUG] user_data keys for {telegram_id}: {list(user_data.keys())}")
+        logger.info(f"[STATS DEBUG] user_data traffic fields: usedTraffic={user_data.get('usedTraffic')}, "
+                    f"used_traffic={user_data.get('used_traffic')}, "
+                    f"totalUsedTraffic={user_data.get('totalUsedTraffic')}, "
+                    f"usedBytes={user_data.get('usedBytes')}, "
+                    f"up={user_data.get('up')}, down={user_data.get('down')}, "
+                    f"uplink={user_data.get('uplink')}, downlink={user_data.get('downlink')}")
+
         used_bytes = 0
-        
+
         # 1. Пробуем получить через эндпоинт статистики
         url = f"{PANEL_URL}/api/bandwidth-stats/users/{uuid}"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
         try:
             async with session.get(url, headers=headers) as resp:
+                raw_text = await resp.text()
+                logger.info(f"[STATS DEBUG] bandwidth-stats status={resp.status}, body={raw_text[:500]}")
                 if resp.status == 200:
-                    raw = await resp.json()
+                    import json as _json
+                    raw = _json.loads(raw_text)
                     data = raw.get("response", raw) if isinstance(raw, dict) else raw
-                    
-                    # Разные варианты ключей в RemnaWave и смежных API
+                    logger.info(f"[STATS DEBUG] bandwidth-stats data keys: {list(data.keys()) if isinstance(data, dict) else data}")
                     used_bytes = (
-                        data.get("used") or 
-                        data.get("usedBytes") or 
-                        data.get("used_traffic") or 
+                        data.get("used") or
+                        data.get("usedBytes") or
+                        data.get("used_traffic") or
                         data.get("totalUsed") or
                         data.get("total") or
                         (data.get("up", 0) + data.get("down", 0)) or
@@ -422,8 +433,8 @@ async def get_client_stats(telegram_id: int) -> float:
         # 2. Если по эндпоинту 0, пробуем достать из данных пользователя (resolve_user)
         if used_bytes == 0:
             used_bytes = (
-                user_data.get("usedTraffic") or 
-                user_data.get("used_traffic") or 
+                user_data.get("usedTraffic") or
+                user_data.get("used_traffic") or
                 user_data.get("totalUsedTraffic") or
                 user_data.get("total_used_traffic") or
                 user_data.get("usedBytes") or
@@ -431,9 +442,11 @@ async def get_client_stats(telegram_id: int) -> float:
                 (user_data.get("uplink", 0) + user_data.get("downlink", 0)) or
                 0
             )
-            
+            logger.info(f"[STATS DEBUG] used_bytes from user_data fallback: {used_bytes}")
+
+        logger.info(f"[STATS DEBUG] final used_bytes={used_bytes}, result={round(float(used_bytes) / (1024 ** 3), 2)} GB")
         return round(float(used_bytes) / (1024 ** 3), 2)
-            
+
     except Exception as e:
         logger.error(f"Error in get_client_stats: {e}")
         return 0.0
