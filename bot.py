@@ -1262,7 +1262,11 @@ async def process_profile(callback: CallbackQuery):
     key_text = "<i>(появится после оплаты)</i>"
     used_gb = 0.0
     sub_link = None
-    device_count = db.get_device_count(callback.from_user.id)
+    
+    # Запрашиваем актуальное количество устройств из панели
+    devices = await panel_api.get_client_devices(callback.from_user.id)
+    device_count = len(devices)
+    device_limit = db.get_user_device_limit(callback.from_user.id) or 3
 
     if sub_end_date_str:
         sub_end_date = datetime.strptime(sub_end_date_str, "%Y-%m-%d %H:%M:%S")
@@ -1296,7 +1300,7 @@ async def process_profile(callback: CallbackQuery):
         f"Статус подписки: {status_text}\n"
         f"Осталось времени: {time_left_str}\n"
         f"Использовано трафика: {used_gb} ГБ\n"
-        f"📱 Устройства: {device_count}/3\n\n"
+        f"📱 Устройства: {device_count}/{device_limit}\n\n"
         f"Ваш ключ (ссылка на подписку):\n{key_text}"
     )
 
