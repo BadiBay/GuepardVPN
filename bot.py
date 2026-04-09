@@ -2144,6 +2144,11 @@ async def check_cryptopay_invoices():
             return
         for inv in invoices:
             if inv.payload and inv.payload.startswith("vpn_"):
+                # Проверка на повторную обработку (как в ЮKassa)
+                invoice_key = f"crypto_{inv.invoice_id}"
+                if db.is_payment_processed(invoice_key):
+                    continue
+
                 parts = inv.payload.split("_")
                 
                 is_gift = False
@@ -2172,12 +2177,16 @@ async def check_cryptopay_invoices():
                     
                 amount = inv.amount
                 logger.info(f"Найден оплаченный счет CryptoBot {inv.invoice_id} на {amount} {inv.asset}")
-                    
-                # Удаляем инвойс чтобы не обрабатывать дважды
+
+                # Отмечаем как обработанный ДО выдачи подписки,
+                # чтобы при любой ошибке не задвоить начисление
+                db.mark_payment_processed(invoice_key)
+
+                # Удаляем инвойс из CryptoBot (попытка)
                 try:
                     await cryptopay.delete_invoice(invoice_id=inv.invoice_id)
                 except Exception as e:
-                    logger.error(f"Ошибка удаления инвойса: {e}")
+                    logger.warning(f"Не удалось удалить инвойс CryptoBot {inv.invoice_id}: {e} (уже помечен обработанным в БД)")
                     
                 # Выдаем подписку и синхронизируем
                 await grant_subscription_and_sync(user_id, days)
