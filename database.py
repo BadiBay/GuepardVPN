@@ -301,6 +301,32 @@ def mark_payment_processed(operation_id: str):
     conn.close()
 
 
+def check_and_mark_payment(operation_id: str) -> bool:
+    """
+    Атомарно проверяет, был ли платеж обработан, и если нет - помечает его.
+    Возвращает True, если платеж НОВЫЙ и был успешно помечен.
+    Возвращает False, если платеж уже был обработан ранее.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    operation_id = str(operation_id)
+    try:
+        # Проверяем наличие
+        cursor.execute("SELECT 1 FROM processed_payments WHERE operation_id = ?", (operation_id,))
+        if cursor.fetchone():
+            return False
+            
+        # Если нет - вставляем
+        cursor.execute("INSERT INTO processed_payments (operation_id) VALUES (?)", (operation_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        # В случае ошибки (например, БД заблокирована), возвращаем False, чтобы не начислить лишнего
+        return False
+    finally:
+        conn.close()
+
+
 def set_auto_renew(telegram_id: int, enabled: bool):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()

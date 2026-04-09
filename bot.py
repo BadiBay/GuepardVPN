@@ -58,6 +58,10 @@ if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
     except Exception as e:
         logger.error(f"YooKassa init error: {e}")
 
+# Блокировки для фоновых задач (чтобы не запускались параллельно если долго работают)
+cryptopay_lock = asyncio.Lock()
+yookassa_lock = asyncio.Lock()
+
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_days = State()
@@ -1928,94 +1932,95 @@ async def check_yookassa_invoices():
     if not yookassa_enabled:
         return
 
-    logger.info("Запуск проверки платежей ЮKassa...")
-    try:
-        from yookassa import Payment as YKPayment
-        # Получаем последние succeeded-платежи (limit 100)
-        # Добавляем таймаут 20 сек, чтобы задача не зависала
-        payments_list = await asyncio.wait_for(
-            asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100}),
-            timeout=20
-        )
+    async with yookassa_lock:
+        logger.info("Запуск проверки платежей ЮKassa...")
+        try:
+            from yookassa import Payment as YKPayment
+            # Получаем последние succeeded-платежи (limit 100)
+            # Добавляем таймаут 20 сек, чтобы задача не зависала
+            payments_list = await asyncio.wait_for(
+                asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100}),
+                timeout=20
+            )
 
-        if not payments_list or not hasattr(payments_list, 'items'):
-             logger.info("Платежи ЮKassa не найдены.")
-             return
+            if not payments_list or not hasattr(payments_list, 'items'):
+                 logger.info("Платежи ЮKassa не найдены.")
+                 return
 
-        for payment in payments_list.items:
-            payment_id = payment.id
+            for payment in payments_list.items:
+                payment_id = payment.id
 
-            if db.is_payment_processed(payment_id):
-                continue
+                # Атомарная проверка и пометка в БД
+                if not db.check_and_mark_payment(payment_id):
+                    continue
 
-            metadata = payment.metadata or {}
-            label = metadata.get("label", "")
+                metadata = payment.metadata or {}
+                label = metadata.get("label", "")
 
-            if not label or not label.startswith("vpn_"):
-                continue
+                if not label or not label.startswith("vpn_"):
+                    continue
 
-            parts = label.split("_")
-            is_gift = False
-            giver_username = None
-            tier = "base"
+                parts = label.split("_")
+                is_gift = False
+                giver_username = None
+                tier = "base"
 
-            if parts[1] == "gift":
-                # vpn_gift_{recipient}_{days}_{tier}_{buyer}
-                user_id = int(parts[2])
-                days = int(parts[3])
-                tier = parts[4] if len(parts) > 5 else "base"
-                buyer_id = int(parts[-1])
-                is_gift = True
-                giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
-                try:
-                    await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
-                except:
-                    pass
-            elif len(parts) >= 3:
-                # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
-                user_id = int(parts[1])
-                days = int(parts[2])
-                tier = parts[3] if len(parts) > 3 else "base"
-            else:
-                continue
+                if parts[1] == "gift":
+                    # vpn_gift_{recipient}_{days}_{tier}_{buyer}
+                    user_id = int(parts[2])
+                    days = int(parts[3])
+                    tier = parts[4] if len(parts) > 5 else "base"
+                    buyer_id = int(parts[-1])
+                    is_gift = True
+                    giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+                    try:
+                        await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
+                    except:
+                        pass
+                elif len(parts) >= 3:
+                    # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
+                    user_id = int(parts[1])
+                    days = int(parts[2])
+                    tier = parts[3] if len(parts) > 3 else "base"
+                else:
+                    continue
 
-            logger.info(f"Найден оплаченный платеж ЮKassa {payment_id}: {payment.amount.value} руб от {user_id}")
-            db.mark_payment_processed(payment_id)
+                logger.info(f"Найден оплаченный платеж ЮKassa {payment_id}: {payment.amount.value} руб от {user_id}")
 
-            # Выдаем подписку и синхронизируем
-            await grant_subscription_and_sync(user_id, days)
-            
-            # Обновляем тир и лимит устройств
-            t = get_tariff(days, tier)
-            if t:
-                db.set_tariff_tier(user_id, tier)
-                db.set_user_device_limit(user_id, t["devices"])
-                await panel_api.update_hwid_device_limit(user_id, t["devices"])
+                # Выдаем подписку и синхронизируем
+                await grant_subscription_and_sync(user_id, days)
+                
+                # Обновляем тир и лимит устройств
+                t = get_tariff(days, tier)
+                if t:
+                    db.set_tariff_tier(user_id, tier)
+                    db.set_user_device_limit(user_id, t["devices"])
+                    await panel_api.update_hwid_device_limit(user_id, t["devices"])
 
-            # Сохраняем метод оплаты для автопродления (только для обычного платежа, не подарка)
-            if not is_gift:
-                try:
-                    pm = getattr(payment, 'payment_method', None)
-                    if pm and getattr(pm, 'saved', False) and getattr(pm, 'id', None):
-                        db.save_payment_method(user_id, pm.id, days)
-                        logger.info(f"Сохранён payment_method_id для {user_id}: {pm.id}")
-                except Exception as e:
-                    logger.warning(f"Не удалось сохранить payment_method для {user_id}: {e}")
+                # Сохраняем метод оплаты для автопродления (только для обычного платежа, не подарка)
+                if not is_gift:
+                    try:
+                        pm = getattr(payment, 'payment_method', None)
+                        if pm and getattr(pm, 'saved', False) and getattr(pm, 'id', None):
+                            db.save_payment_method(user_id, pm.id, days)
+                            logger.info(f"Сохранён payment_method_id для {user_id}: {pm.id}")
+                    except Exception as e:
+                        logger.warning(f"Не удалось сохранить payment_method для {user_id}: {e}")
 
-            # Рефералка
-            referrer_id = db.get_referrer(user_id)
-            if referrer_id:
-                await grant_subscription_and_sync(referrer_id, 3)
-                try:
-                    await bot.send_message(
-                        chat_id=referrer_id,
-                        text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+3 бонусных дня</b>!",
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
+                # Рефералка
+                referrer_id = db.get_referrer(user_id)
+                if referrer_id:
+                    await grant_subscription_and_sync(referrer_id, 3)
+                    try:
+                        await bot.send_message(
+                            chat_id=referrer_id,
+                            text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+3 бонусных дня</b>!",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
 
-            await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
+                await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
         logger.info("Проверка платежей ЮKassa завершена.")
     except asyncio.TimeoutError:
         logger.error("Таймаут при запросе к API ЮKassa в check_yookassa_invoices")
@@ -2136,82 +2141,79 @@ async def check_cryptopay_invoices():
     if not cryptopay:
         return
         
-    try:
-        # Получаем все инвойсы со статусом 'paid'
-        # Добавляем таймаут, чтобы избежать зависания задачи
-        invoices = await asyncio.wait_for(cryptopay.get_invoices(status="paid"), timeout=15)
-        if not invoices:
-            return
-        for inv in invoices:
-            if inv.payload and inv.payload.startswith("vpn_"):
-                # Проверка на повторную обработку (как в ЮKassa)
-                invoice_key = f"crypto_{inv.invoice_id}"
-                if db.is_payment_processed(invoice_key):
-                    continue
+    async with cryptopay_lock:
+        try:
+            # Получаем все инвойсы со статусом 'paid'
+            # Добавляем таймаут, чтобы избежать зависания задачи
+            invoices = await asyncio.wait_for(cryptopay.get_invoices(status="paid"), timeout=15)
+            if not invoices:
+                return
+            for inv in invoices:
+                if inv.payload and inv.payload.startswith("vpn_"):
+                    # Атомарная проверка и пометка в БД
+                    invoice_key = f"crypto_{inv.invoice_id}"
+                    if not db.check_and_mark_payment(invoice_key):
+                        continue
 
-                parts = inv.payload.split("_")
-                
-                is_gift = False
-                giver_username = None
-                tier = "base"
-                
-                if parts[1] == "gift":
-                    # vpn_gift_{recipient}_{days}_{tier}_{buyer}
-                    user_id = int(parts[2])
-                    days = int(parts[3])
-                    tier = parts[4] if len(parts) > 5 else "base"
-                    buyer_id = int(parts[-1])
-                    is_gift = True
-                    giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
-                    try:
-                        await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
-                    except:
-                        pass
-                elif len(parts) >= 3:
-                    # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
-                    user_id = int(parts[1])
-                    days = int(parts[2])
-                    tier = parts[3] if len(parts) > 3 else "base"
-                else:
-                    continue
+                    parts = inv.payload.split("_")
                     
-                amount = inv.amount
-                logger.info(f"Найден оплаченный счет CryptoBot {inv.invoice_id} на {amount} {inv.asset}")
-
-                # Отмечаем как обработанный ДО выдачи подписки,
-                # чтобы при любой ошибке не задвоить начисление
-                db.mark_payment_processed(invoice_key)
-
-                # Удаляем инвойс из CryptoBot (попытка)
-                try:
-                    await cryptopay.delete_invoice(invoice_id=inv.invoice_id)
-                except Exception as e:
-                    logger.warning(f"Не удалось удалить инвойс CryptoBot {inv.invoice_id}: {e} (уже помечен обработанным в БД)")
+                    is_gift = False
+                    giver_username = None
+                    tier = "base"
                     
-                # Выдаем подписку и синхронизируем
-                await grant_subscription_and_sync(user_id, days)
+                    if parts[1] == "gift":
+                        # vpn_gift_{recipient}_{days}_{tier}_{buyer}
+                        user_id = int(parts[2])
+                        days = int(parts[3])
+                        tier = parts[4] if len(parts) > 5 else "base"
+                        buyer_id = int(parts[-1])
+                        is_gift = True
+                        giver_username = db.get_username(buyer_id) or f"ID:{buyer_id}"
+                        try:
+                            await bot.send_message(buyer_id, f"🎁 Вы успешно подарили подписку на {days} дней пользователю <code>{user_id}</code>!", parse_mode="HTML")
+                        except:
+                            pass
+                    elif len(parts) >= 3:
+                        # vpn_{uid}_{days}_{tier} или старый vpn_{uid}_{days}
+                        user_id = int(parts[1])
+                        days = int(parts[2])
+                        tier = parts[3] if len(parts) > 3 else "base"
+                    else:
+                        continue
+                        
+                    amount = inv.amount
+                    logger.info(f"Найден оплаченный счет CryptoBot {inv.invoice_id} на {amount} {inv.asset}")
 
-                # Обновляем тир и лимит устройств
-                t = get_tariff(days, tier)
-                if t:
-                    db.set_tariff_tier(user_id, tier)
-                    db.set_user_device_limit(user_id, t["devices"])
-                    await panel_api.update_hwid_device_limit(user_id, t["devices"])
-
-                # Рефералка
-                referrer_id = db.get_referrer(user_id)
-                if referrer_id:
-                    await grant_subscription_and_sync(referrer_id, 3)
+                    # Удаляем инвойс из CryptoBot (попытка)
                     try:
-                        await bot.send_message(
-                            chat_id=referrer_id,
-                            text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+3 бонусных дня</b>!",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                        await cryptopay.delete_invoice(invoice_id=inv.invoice_id)
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить инвойс CryptoBot {inv.invoice_id}: {e} (уже помечен обработанным в БД)")
+                        
+                    # Выдаем подписку и синхронизируем
+                    await grant_subscription_and_sync(user_id, days)
 
-                await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
+                    # Обновляем тир и лимит устройств
+                    t = get_tariff(days, tier)
+                    if t:
+                        db.set_tariff_tier(user_id, tier)
+                        db.set_user_device_limit(user_id, t["devices"])
+                        await panel_api.update_hwid_device_limit(user_id, t["devices"])
+
+                    # Рефералка
+                    referrer_id = db.get_referrer(user_id)
+                    if referrer_id:
+                        await grant_subscription_and_sync(referrer_id, 3)
+                        try:
+                            await bot.send_message(
+                                chat_id=referrer_id,
+                                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+3 бонусных дня</b>!",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+
+                    await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
     except asyncio.TimeoutError:
         logger.error("Таймаут при запросе к API CryptoPay в check_cryptopay_invoices")
