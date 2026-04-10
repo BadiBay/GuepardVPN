@@ -28,11 +28,16 @@ async def get_session() -> aiohttp.ClientSession:
 
 def get_m_username(telegram_id: int) -> str:
     username = db.get_username(telegram_id)
-    if username and str(username).strip() != "None":
-        clean = "".join(c for c in username if c.isalnum() or c in ("-", "_"))
-        if clean:
-            return clean
+    if username:
+        username_str = str(username).strip()
+        if username_str and username_str.lower() != "none":
+            clean = "".join(c for c in username_str if c.isalnum() or c in ("-", "_"))
+            if clean:
+                return clean
+    
+    logger.debug(f"Falling back to tg_{telegram_id} for user {telegram_id} (username in DB: {username})")
     return f"tg_{telegram_id}"
+
 
 
 async def get_token() -> str | None:

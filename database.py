@@ -79,11 +79,17 @@ def add_user(telegram_id: int, username: str, referrer_id: int | None = None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT OR IGNORE INTO users (telegram_id, username, referrer_id) VALUES (?, ?, ?)",
+        """
+        INSERT INTO users (telegram_id, username, referrer_id) VALUES (?, ?, ?)
+        ON CONFLICT(telegram_id) DO UPDATE SET
+            username = COALESCE(excluded.username, users.username),
+            referrer_id = COALESCE(users.referrer_id, excluded.referrer_id)
+        """,
         (telegram_id, username, referrer_id)
     )
     conn.commit()
     conn.close()
+
 
 
 def get_user(telegram_id: int):
