@@ -2021,11 +2021,11 @@ async def check_yookassa_invoices():
                         pass
 
                 await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
-        logger.info("Проверка платежей ЮKassa завершена.")
-    except asyncio.TimeoutError:
-        logger.error("Таймаут при запросе к API ЮKassa в check_yookassa_invoices")
-    except Exception as e:
-        logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
+            logger.info("Проверка платежей ЮKassa завершена.")
+        except asyncio.TimeoutError:
+            logger.error("Таймаут при запросе к API ЮKassa в check_yookassa_invoices")
+        except Exception as e:
+            logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
 
 
 
@@ -2215,10 +2215,10 @@ async def check_cryptopay_invoices():
 
                     await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
-    except asyncio.TimeoutError:
-        logger.error("Таймаут при запросе к API CryptoPay в check_cryptopay_invoices")
-    except Exception as e:
-        logger.error(f"Ошибка при проверке инвойсов CryptoPay: {e}")
+        except asyncio.TimeoutError:
+            logger.error("Таймаут при запросе к API CryptoPay в check_cryptopay_invoices")
+        except Exception as e:
+            logger.error(f"Ошибка при проверке инвойсов CryptoPay: {e}")
 
 
 async def main():
