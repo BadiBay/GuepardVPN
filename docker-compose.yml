@@ -9,3 +9,10 @@ services:
       - .:/app
     ports:
       - "8081:8081"
+    healthcheck:
+      # Проверяем доступность Telegram API каждые 5 минут
+      test: ["CMD", "python3", "-c", "import urllib.request, sys; urllib.request.urlopen('https://api.telegram.org', timeout=10) and sys.exit(0)"]
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 30s

@@ -62,6 +62,12 @@ if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
 cryptopay_lock = asyncio.Lock()
 yookassa_lock = asyncio.Lock()
 
+# Счётчики последовательных таймаутов для адаптивного backoff
+_cryptopay_timeout_count = 0
+_yookassa_timeout_count = 0
+_telegram_timeout_count = 0
+_telegram_last_success = None  # время последнего успешного ответа Telegram
+
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_days = State()
@@ -1929,8 +1935,19 @@ async def check_zero_traffic_after_24h():
 
 async def check_yookassa_invoices():
     """Фоновая задача: проверка статуса платежей ЮKassa"""
+    global _yookassa_timeout_count
     if not yookassa_enabled:
         return
+
+    # Адаптивный backoff: пропускаем запросы при серии таймаутов
+    if _yookassa_timeout_count >= 20:
+        # >20 подряд → пропускаем (интервал ~10 мин эффективно)
+        if _yookassa_timeout_count % 20 != 0:
+            return
+    elif _yookassa_timeout_count >= 10:
+        # 10–19 подряд → пропускаем каждый второй (интервал ~1 мин эффективно)
+        if _yookassa_timeout_count % 2 != 0:
+            return
 
     async with yookassa_lock:
         logger.info("Запуск проверки платежей ЮKassa...")
@@ -1942,6 +1959,9 @@ async def check_yookassa_invoices():
                 asyncio.to_thread(YKPayment.list, {"status": "succeeded", "limit": 100}),
                 timeout=20
             )
+
+            # Успех — сбрасываем счётчик
+            _yookassa_timeout_count = 0
 
             if not payments_list or not hasattr(payments_list, 'items'):
                  logger.info("Платежи ЮKassa не найдены.")
@@ -2023,7 +2043,9 @@ async def check_yookassa_invoices():
                 await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
             logger.info("Проверка платежей ЮKassa завершена.")
         except asyncio.TimeoutError:
-            logger.error("Таймаут при запросе к API ЮKassa в check_yookassa_invoices")
+            _yookassa_timeout_count += 1
+            if _yookassa_timeout_count == 1 or _yookassa_timeout_count % 10 == 0:
+                logger.error(f"Таймаут при запросе к API ЮKassa в check_yookassa_invoices (подряд: {_yookassa_timeout_count})")
         except Exception as e:
             logger.error(f"Ошибка при проверке платежей ЮKassa: {e}")
 
@@ -2138,14 +2160,27 @@ async def auto_renew_subscriptions():
 
 async def check_cryptopay_invoices():
     """Фоновая задача: проверка статуса счетов CryptoBot"""
+    global _cryptopay_timeout_count
     if not cryptopay:
         return
-        
+
+    # Адаптивный backoff: пропускаем запросы при серии таймаутов
+    if _cryptopay_timeout_count >= 20:
+        # >20 подряд → пропускаем (интервал ~10 мин эффективно)
+        if _cryptopay_timeout_count % 20 != 0:
+            return
+    elif _cryptopay_timeout_count >= 10:
+        # 10–19 подряд → пропускаем каждый второй (интервал ~1 мин эффективно)
+        if _cryptopay_timeout_count % 2 != 0:
+            return
+
     async with cryptopay_lock:
         try:
             # Получаем все инвойсы со статусом 'paid'
             # Добавляем таймаут, чтобы избежать зависания задачи
             invoices = await asyncio.wait_for(cryptopay.get_invoices(status="paid"), timeout=15)
+            # Успех — сбрасываем счётчик таймаутов
+            _cryptopay_timeout_count = 0
             if not invoices:
                 return
             for inv in invoices:
@@ -2216,7 +2251,9 @@ async def check_cryptopay_invoices():
                     await send_success_message(user_id, days, is_gift=is_gift, giver_username=giver_username)
                         
         except asyncio.TimeoutError:
-            logger.error("Таймаут при запросе к API CryptoPay в check_cryptopay_invoices")
+            _cryptopay_timeout_count += 1
+            if _cryptopay_timeout_count == 1 or _cryptopay_timeout_count % 10 == 0:
+                logger.error(f"Таймаут при запросе к API CryptoPay в check_cryptopay_invoices (подряд: {_cryptopay_timeout_count})")
         except Exception as e:
             logger.error(f"Ошибка при проверке инвойсов CryptoPay: {e}")
 
