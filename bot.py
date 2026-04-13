@@ -203,6 +203,7 @@ def get_main_menu_kb(user_id: int | None = None):
             InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")
         ],
         [InlineKeyboardButton(text="💬 Поддержка", callback_data="support_start")],
+        [InlineKeyboardButton(text="🤝 Пригласить друга", callback_data="menu_referral")],
         [InlineKeyboardButton(text="📄 Документы", callback_data="menu_docs")]
     ])
 
