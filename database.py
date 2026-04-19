@@ -71,6 +71,10 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN tariff_tier TEXT DEFAULT 'base'")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN channel_gift_claimed INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -283,6 +287,23 @@ def has_ever_subscribed(telegram_id: int):
     conn.close()
     return result and result[0] is not None
 
+def has_claimed_channel_gift(telegram_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT channel_gift_claimed FROM users WHERE telegram_id = ?", (telegram_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result and result[0] is not None:
+        return bool(result[0])
+    return False
+
+def mark_channel_gift_claimed(telegram_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET channel_gift_claimed = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
 
 def delete_user_data(telegram_id: int):
     conn = sqlite3.connect(DB_NAME)
@@ -493,3 +514,5 @@ def clear_user_devices(telegram_id: int):
     cursor.execute("DELETE FROM user_devices WHERE telegram_id = ?", (telegram_id,))
     conn.commit()
     conn.close()
+
+# End of file
