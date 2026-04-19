@@ -187,7 +187,11 @@ def get_webapp_url(user_id: int | None = None) -> str:
             sub_link = format_sub_link(client_uuid)
             end_str = str(sub_end) if sub_end else 'None'
             
-            params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link}
+            auto_renew, saved_pm = db.get_auto_renew(user_id)
+            ar_int = 1 if auto_renew else 0
+            pm_int = 1 if saved_pm else 0
+            
+            params = {'tid': user_id, 'bal': balance, 'end': end_str, 'uuid': sub_link, 'ar': ar_int, 'pm': pm_int}
             qs = urlencode(params)
             return f"{WEBAPP_URL}/?{qs}"
     return f"{WEBAPP_URL}/"
@@ -523,6 +527,54 @@ async def cmd_start(message: Message, state: FSMContext):
                     support_timeouts[user_id].cancel()
                 task = asyncio.create_task(support_timeout(user_id, state))
                 support_timeouts[user_id] = task
+                return
+            elif args[1] == "devices":
+                devices = await panel_api.get_client_devices(message.from_user.id)
+                if not devices:
+                    text = "📱 <b>Ваши устройства</b>\n\nВы еще не подключались ни с одного устройства."
+                    kb = InlineKeyboardMarkup(inline_keyboard=[])
+                    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+                    return
+                device_limit = db.get_user_device_limit(message.from_user.id) or 3
+                text = f"📱 <b>Отслеживание устройств (Макс {device_limit})</b>\n\nПривязано: {len(devices)}/{device_limit}\n\n"
+                keyboard = []
+                for i, dev in enumerate(devices):
+                    hwid = dev.get("hwid", "N/A")
+                    model = dev.get("deviceModel", "N/A")
+                    platform = dev.get("platform", "N/A")
+                    ua_full = dev.get("userAgent", "N/A")
+                    ua = (ua_full[:30] + '..') if len(ua_full) > 30 else ua_full
+                    text += f"<b>{i+1}.</b> 💻 {model} ({platform})\n🌐 {ua}\n🔑 <code>{hwid}</code>\n\n"
+                keyboard.append([InlineKeyboardButton(text="🔄 Сбросить привязки (Удалить все сессии)", callback_data="action_reset_ips")])
+                kb = InlineKeyboardMarkup(inline_keyboard=keyboard)
+                await message.answer(text, reply_markup=kb, parse_mode="HTML")
+                return
+            elif args[1] == "toggle_auto_renew":
+                user_id = message.from_user.id
+                auto_renew_flag, saved_pm = db.get_auto_renew(user_id)
+                if auto_renew_flag:
+                    db.set_auto_renew(user_id, False)
+                    await message.answer("✅ Автопродление успешно отключено.")
+                else:
+                    await message.answer("ℹ️ Автопродление уже отключено. Оно будет включено автоматически при следующей оплате через ЮKassa.")
+                return
+            elif args[1] == "check_sub":
+                user_id = message.from_user.id
+                try:
+                    chat_member = await bot.get_chat_member("@guepardvpnnews", user_id)
+                    if chat_member.status in ["member", "administrator", "creator"]:
+                        if db.has_claimed_channel_gift(user_id):
+                            await message.answer("Вы уже получили подарочные дни за подписку на канал!")
+                        else:
+                            db.add_subscription(user_id, 5)
+                            db.mark_channel_gift_claimed(user_id)
+                            await message.answer("🎉 Поздравляем! Вам начислено 5 дней премиум подписки за подписку на канал.")
+                            await send_success_message(user_id, 5)
+                    else:
+                        await message.answer("❌ Вы не подписаны на канал @guepardvpnnews. Подпишитесь, чтобы получить бонус.")
+                except Exception as e:
+                    logger.error(f"Error checking sub: {e}")
+                    await message.answer("Произошла ошибка при проверке подписки. Убедитесь, что вы подписаны на канал @guepardvpnnews.")
                 return
 
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
