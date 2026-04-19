@@ -574,7 +574,12 @@ async def cmd_start(message: Message, state: FSMContext):
                         await message.answer("❌ Вы не подписаны на канал @guepardvpnnews. Подпишитесь, чтобы получить бонус.")
                 except Exception as e:
                     logger.error(f"Error checking sub: {e}")
-                    await message.answer("Произошла ошибка при проверке подписки. Убедитесь, что вы подписаны на канал @guepardvpnnews.")
+                    if "user not found" in str(e).lower() or "participant" in str(e).lower() or "not found" in str(e).lower():
+                        await message.answer("❌ Вы не подписаны на канал @guepardvpnnews. Подпишитесь, чтобы получить бонус.")
+                    elif "chat not found" in str(e).lower() or "member" in str(e).lower():
+                        await message.answer("⚠️ Ошибка: Бот должен быть назначен администратором канала @guepardvpnnews для проверки подписок.")
+                    else:
+                        await message.answer(f"❌ Произошла ошибка при проверке подписки: {e}")
                 return
 
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
