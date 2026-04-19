@@ -287,20 +287,51 @@ def has_ever_subscribed(telegram_id: int):
     conn.close()
     return result and result[0] is not None
 
-def has_claimed_channel_gift(telegram_id: int) -> bool:
+import time
+
+def can_claim_channel_gift(telegram_id: int) -> bool:
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT channel_gift_claimed FROM users WHERE telegram_id = ?", (telegram_id,))
     result = cursor.fetchone()
     conn.close()
-    if result and result[0] is not None:
-        return bool(result[0])
+    if not result or result[0] is None:
+        return True
+        
+    val = result[0]
+    if val == 0:
+        return True
+    
+    # If 30 days (30 * 86400 seconds) have passed, it's allowed again.
+    # Note: users with old value '1' will have `time.time() - 1`, which is much > 30 days, so they get a reset.
+    if time.time() - float(val) >= 2592000:
+        return True
     return False
+
+def get_next_gift_claim_days(telegram_id: int) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT channel_gift_claimed FROM users WHERE telegram_id = ?", (telegram_id,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if not result or result[0] is None or result[0] == 0:
+        return 0
+        
+    val = float(result[0])
+    if val == 1:
+        return 0
+        
+    seconds_left = (val + 2592000) - time.time()
+    if seconds_left <= 0:
+        return 0
+    return max(1, int(seconds_left / 86400))
 
 def mark_channel_gift_claimed(telegram_id: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET channel_gift_claimed = 1 WHERE telegram_id = ?", (telegram_id,))
+    now_ts = int(time.time())
+    cursor.execute("UPDATE users SET channel_gift_claimed = ? WHERE telegram_id = ?", (now_ts, telegram_id))
     conn.commit()
     conn.close()
 

@@ -579,8 +579,9 @@ async def cmd_start(message: Message, state: FSMContext):
                 try:
                     chat_member = await bot.get_chat_member("@guepardvpnnews", user_id)
                     if chat_member.status in ["member", "administrator", "creator"]:
-                        if db.has_claimed_channel_gift(user_id):
-                            await message.answer("Вы уже получили подарочные дни за подписку на канал!")
+                        if not db.can_claim_channel_gift(user_id):
+                            days_left = db.get_next_gift_claim_days(user_id)
+                            await message.answer(f"⏳ Вы уже получали бонус в этом месяце! Следующий бонус будет доступен через {days_left} дней.")
                         else:
                             db.add_subscription(user_id, 5)
                             db.mark_channel_gift_claimed(user_id)
@@ -595,7 +596,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     elif "chat not found" in str(e).lower() or "member" in str(e).lower():
                         await message.answer("⚠️ Ошибка: Бот должен быть назначен администратором канала @guepardvpnnews для проверки подписок.")
                     else:
-                        await message.answer(f"❌ Произошла ошибка при проверке подписки: {e}")
+                        await message.answer(f"❌ Произошла ошибка при проверке подписки.")
                 return
 
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
@@ -1013,8 +1014,9 @@ async def process_check_sub_channel(callback: CallbackQuery):
     try:
         chat_member = await bot.get_chat_member("@guepardvpnnews", user_id)
         if chat_member.status in ["member", "administrator", "creator"]:
-            if db.has_claimed_channel_gift(user_id):
-                await callback.answer("Вы уже получили подарочные дни за подписку на канал!", show_alert=True)
+            if not db.can_claim_channel_gift(user_id):
+                days_left = db.get_next_gift_claim_days(user_id)
+                await callback.answer(f"⏳ Вы уже получали бонус недавно! Следующий бонус будет доступен через {days_left} дней.", show_alert=True)
             else:
                 db.mark_channel_gift_claimed(user_id)
                 await grant_subscription_and_sync(user_id, 5)
