@@ -257,6 +257,10 @@ def get_install_kb():
             InlineKeyboardButton(text="💻 MacOS", callback_data="stub_os_macos"),
             InlineKeyboardButton(text="🪟 Windows", callback_data="stub_os_windows")
         ],
+        [
+            InlineKeyboardButton(text="📺 Android TV", callback_data="stub_os_android_tv"),
+            InlineKeyboardButton(text="🐧 Linux", callback_data="stub_os_linux")
+        ],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
 
@@ -1033,7 +1037,7 @@ async def process_install_os_windows(callback: CallbackQuery):
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://v2tun.ru/#download")],
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://v2raytun.com/#download")],
         [InlineKeyboardButton(text="📥 Скачать Happ", url="https://www.happ.su/main")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
     ])
@@ -1054,6 +1058,41 @@ async def process_install_os_macos(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://apps.apple.com/ru/app/v2raytun/id6476628951?platform=mac")],
         [InlineKeyboardButton(text="📥 Скачать Happ", url="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973?platform=mac")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_os_android_tv")
+async def process_install_os_android_tv(callback: CallbackQuery):
+    text = (
+        "📖 <b>Для подключения на AndroidTV:</b>\n\n"
+        "1. Установите приложение «v2RayTun» на телефон (Android или iOS). Для этого вернитесь «🔙 Назад» к инструкции, выберите нужное устройство и следуйте шагам.\n\n"
+        "2. После добавления профиля на телефоне, установите приложение «v2RayTun» на ваш Android TV через Google Play.\n\n"
+        "3. Откройте V2RayTun на TV, выберите «Управление → Импорт с телефона». На телефоне найдите ваш профиль, нажмите на иконку QR-кода справа от названия и отсканируйте код с экрана TV.\n\n"
+        "4. Выберите нужный профиль (он подсветится), затем нажмите синюю круглую кнопку вверху экрана и подтвердите добавление.\n\n"
+        "5. Готово! Всё настроено — пользуйтесь комфортным подключением."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
+    ])
+    await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "stub_os_linux")
+async def process_install_os_linux(callback: CallbackQuery):
+    text = (
+        "📲 <b>Инструкция по установке:</b>\n\n"
+        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
+        "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
+        "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
+        "4. Выберите «Импорт из буфера обмена».\n"
+        "5. Нажмите кнопку <b>Подключить</b>!\n\n"
+        "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://v2raytun.com/#download")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://www.happ.su/main")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
     ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
