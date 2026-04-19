@@ -1034,7 +1034,7 @@ async def process_check_sub_channel(callback: CallbackQuery):
         elif "chat not found" in str(e).lower() or "member" in str(e).lower():
             await callback.answer("⚠️ Ошибка: Бот должен быть назначен администратором канала @guepardvpnnews.", show_alert=True)
         else:
-            await callback.answer("❌ Произошла ошибка при проверке подписки.", show_alert=True)
+            await callback.answer(f"❌ Произошла ошибка: {str(e)[:150]}", show_alert=True)
 
 
 @dp.callback_query(F.data == "menu_install")
