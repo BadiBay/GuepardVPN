@@ -998,12 +998,21 @@ async def process_main_menu(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "menu_free_vpn")
 async def process_free_vpn(callback: CallbackQuery):
+    user_id = callback.from_user.id
     days_left = db.get_next_gift_claim_days(user_id)
+    
+    bonus_note = ""
+    if days_left > 0:
+        bonus_note = f"\n\n⏳ Следующий бонус за подписку будет доступен через <b>{days_left} дн.</b>"
+    else:
+        bonus_note = "\n\n✅ Бонус за подписку на канал <b>доступен сейчас!</b>"
+
     text = (
         "🎁 <b>Бесплатный ВПН</b>\n\n"
         "Вы можете получить бесплатные дни подписки, выполнив следующие действия:\n\n"
         "1️⃣ <b>Пригласить друга</b> — получайте бонусы за каждого приглашенного.\n"
-        f"2️⃣ <b>Подписаться на канал</b> — подпишитесь на наш новостной канал, чтобы получить 5 дней подписки бесплатно! Это можно делать раз в месяц, следующий бонус будет доступен через {days_left} дней"
+        "2️⃣ <b>Подписаться на канал</b> — подпишитесь на наш новостной канал, чтобы получить 5 дней подписки бесплатно!"
+        f"{bonus_note}"
     )
     await safe_edit(callback.message, text, reply_markup=get_free_vpn_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
