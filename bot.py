@@ -201,6 +201,7 @@ def get_main_menu_kb(user_id: int | None = None):
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Открыть приложение (Mini App)", web_app=WebAppInfo(url=final_url))],
+        [InlineKeyboardButton(text="🎁 Бесплатный ВПН", callback_data="menu_free_vpn")],
         [InlineKeyboardButton(text="🔑 Купить подписку", callback_data="menu_tariffs")],
         [
             InlineKeyboardButton(text="📱 Установить VPN", callback_data="menu_install"),
@@ -314,6 +315,21 @@ def get_docs_kb():
         [InlineKeyboardButton(text="❓ FAQ", callback_data="stub_faq")],
         [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
     ])
+
+def get_free_vpn_kb(user_id: int):
+    keyboard = []
+    
+    # Кнопка бесплатного теста на 24 часа (если еще не брали)
+    if not db.has_ever_subscribed(user_id):
+        keyboard.append([InlineKeyboardButton(text="🎁 Бесплатный тест (24 часа)", callback_data="test_24h")])
+
+    keyboard.extend([
+        [InlineKeyboardButton(text="🤝 Пригласить друга", callback_data="menu_referral")],
+        [InlineKeyboardButton(text="📢 Подписаться на канал", url="https://t.me/guepardvpnnews")],
+        [InlineKeyboardButton(text="✅ Проверить", callback_data="check_sub_channel")],
+        [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_main")]
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def send_success_message(user_id: int, days: int, is_gift: bool = False, giver_username: str = None):
     text = (
@@ -977,6 +993,48 @@ async def process_main_menu(callback: CallbackQuery):
         pass
     await send_welcome_message(callback.message.chat.id, callback.from_user.id)
     await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_free_vpn")
+async def process_free_vpn(callback: CallbackQuery):
+    text = (
+        "🎁 <b>Бесплатный ВПН</b>\n\n"
+        "Вы можете получить бесплатные дни подписки, выполнив следующие действия:\n\n"
+        "1️⃣ <b>Пригласить друга</b> — получайте бонусы за каждого приглашенного.\n"
+        "2️⃣ <b>Подписаться на канал</b> — подпишитесь на наш новостной канал, чтобы получить 5 дней подписки бесплатно!"
+    )
+    await safe_edit(callback.message, text, reply_markup=get_free_vpn_kb(callback.from_user.id), parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "check_sub_channel")
+async def process_check_sub_channel(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    try:
+        chat_member = await bot.get_chat_member("@guepardvpnnews", user_id)
+        if chat_member.status in ["member", "administrator", "creator"]:
+            if db.has_claimed_channel_gift(user_id):
+                await callback.answer("Вы уже получили подарочные дни за подписку на канал!", show_alert=True)
+            else:
+                db.mark_channel_gift_claimed(user_id)
+                await grant_subscription_and_sync(user_id, 5)
+                await callback.answer("🎉 Поздравляем! Вам начислено 5 дней премиум подписки за подписку на канал.", show_alert=True)
+                await send_success_message(user_id, 5)
+                # To navigate back to main menu or update the message
+                try:
+                    await callback.message.delete()
+                except Exception:
+                    pass
+        else:
+            await callback.answer("❌ Вы не подписаны на канал @guepardvpnnews. Подпишитесь, чтобы получить бонус.", show_alert=True)
+    except Exception as e:
+        logger.error(f"Error checking sub channel: {e}")
+        if "user not found" in str(e).lower() or "participant" in str(e).lower() or "not found" in str(e).lower():
+            await callback.answer("❌ Вы не подписаны на канал @guepardvpnnews. Подпишитесь, чтобы получить бонус.", show_alert=True)
+        elif "chat not found" in str(e).lower() or "member" in str(e).lower():
+            await callback.answer("⚠️ Ошибка: Бот должен быть назначен администратором канала @guepardvpnnews.", show_alert=True)
+        else:
+            await callback.answer("❌ Произошла ошибка при проверке подписки.", show_alert=True)
 
 
 @dp.callback_query(F.data == "menu_install")
