@@ -599,20 +599,7 @@ async def cmd_start(message: Message, state: FSMContext):
                         await message.answer(f"❌ Произошла ошибка при проверке подписки.")
                 return
 
-    is_new = not db.get_user(message.from_user.id)
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
-    
-    if is_new and referrer_id:
-        await grant_subscription_and_sync(referrer_id, 5)
-        try:
-            await bot.send_message(
-                chat_id=referrer_id,
-                text=f"🎁 <b>Реферальный бонус!</b>\n\nПо вашей ссылке зарегистрировался новый пользователь. Вам начислено <b>+5 бонусных дней</b>!",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
     await send_welcome_message(message.chat.id, message.from_user.id)
 # --- АДМИН ПАНЕЛЬ ---
 
@@ -1707,7 +1694,7 @@ async def process_referral(callback: CallbackQuery):
     text = (
         "🤝 <b>Партнерская программа</b>\n\n"
         "Приглашайте друзей и получайте бонусные дни!\n"
-        "Вы получите <b>+5 дней</b> за регистрацию друга по вашей ссылке, а также <b>+5 дней</b> за каждую его оплату подписки.\n\n"
+        "За первую и последующие оплаты приглашенного друга вы будете получать <b>+5 дней</b> к своей подписке.\n\n"
         f"Ваша реферальная ссылка:\n<code>{ref_link}</code>\n\n"
         f"👥 Приглашено друзей: <b>{ref_count}</b>"
     )
