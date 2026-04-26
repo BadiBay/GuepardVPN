@@ -1183,8 +1183,8 @@ async def process_install_os_macos(callback: CallbackQuery):
         "<i>Если VPN не работает, попробуйте сбросить сессии в Личном кабинете -> Устройства.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://apps.apple.com/ru/app/v2raytun/id6476628951?platform=mac")],
-        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973?platform=mac")],
+        [InlineKeyboardButton(text="📥 Скачать v2RayTun", url="https://apps.apple.com/app/v2raytun/id6476628951?platform=mac")],
+        [InlineKeyboardButton(text="📥 Скачать Happ", url="https://apps.apple.com/app/happ-proxy-utility-plus/id6746188973?platform=mac")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_install")]
     ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
