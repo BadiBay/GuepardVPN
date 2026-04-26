@@ -1,4 +1,5 @@
 import asyncio
+import urllib.parse
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
@@ -1698,7 +1699,11 @@ async def process_referral(callback: CallbackQuery):
         f"Ваша реферальная ссылка:\n<code>{ref_link}</code>\n\n"
         f"👥 Приглашено друзей: <b>{ref_count}</b>"
     )
+    share_msg = urllib.parse.quote("Попробуй GuepardVPN! Быстрый и надежный.")
+    share_url = f"https://t.me/share/url?url={ref_link}&text={share_msg}"
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Поделиться с другом", url=share_url)],
         [InlineKeyboardButton(text="🔙 Назад в кабинет", callback_data="menu_profile")]
     ])
     await safe_edit(callback.message, text, reply_markup=kb, parse_mode="HTML")
