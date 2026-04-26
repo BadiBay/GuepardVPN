@@ -218,8 +218,8 @@ def get_profile_kb(sub_link: str | None = None, auto_renew: bool = False, has_pa
     if sub_link:
         keyboard.append([InlineKeyboardButton(text="🔗 Страница вашей подписки", url=sub_link)])
         keyboard.append([
-            InlineKeyboardButton(text="🦊 Импорт в v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={sub_link}"),
-            InlineKeyboardButton(text="🐰 Импорт в Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={sub_link}")
+            InlineKeyboardButton(text="🔗 v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={sub_link}"),
+            InlineKeyboardButton(text="🔗 Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={sub_link}")
         ])
     keyboard.extend([
         [InlineKeyboardButton(text="⚙️ Устройства", callback_data="menu_devices")],
@@ -599,7 +599,20 @@ async def cmd_start(message: Message, state: FSMContext):
                         await message.answer(f"❌ Произошла ошибка при проверке подписки.")
                 return
 
+    is_new = not db.get_user(message.from_user.id)
     db.add_user(message.from_user.id, message.from_user.username, referrer_id)
+    
+    if is_new and referrer_id:
+        await grant_subscription_and_sync(referrer_id, 5)
+        try:
+            await bot.send_message(
+                chat_id=referrer_id,
+                text=f"🎁 <b>Реферальный бонус!</b>\n\nПо вашей ссылке зарегистрировался новый пользователь. Вам начислено <b>+5 бонусных дней</b>!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
     await send_welcome_message(message.chat.id, message.from_user.id)
 # --- АДМИН ПАНЕЛЬ ---
 
@@ -1137,7 +1150,7 @@ async def process_install_os_ios(callback: CallbackQuery):
 async def process_install_os_android(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
-        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений Google Play.\n"
+        "1. Скачайте приложение <b>v2RayTun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из вашего магазина приложений Google Play.\n"
         "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
@@ -1156,7 +1169,7 @@ async def process_install_os_android(callback: CallbackQuery):
 async def process_install_os_windows(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
-        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
+        "1. Скачайте приложение <b>v2RayTun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
         "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
@@ -1175,7 +1188,7 @@ async def process_install_os_windows(callback: CallbackQuery):
 async def process_install_os_macos(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
-        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из AppStore или браузера.\n"
+        "1. Скачайте приложение <b>v2RayTun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами из AppStore или браузера.\n"
         "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
@@ -1210,7 +1223,7 @@ async def process_install_os_android_tv(callback: CallbackQuery):
 async def process_install_os_linux(callback: CallbackQuery):
     text = (
         "📲 <b>Инструкция по установке:</b>\n\n"
-        "1. Скачайте приложение <b>V2Ray Tun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
+        "1. Скачайте приложение <b>v2RayTun</b>, <b>Hiddify</b>, <b>Happ</b> или любое другое приложение для работы с прокси-серверами.\n"
         "2. Скопируйте ваш уникальный ключ (ссылку на подписку) из Личного кабинета.\n"
         "3. Откройте скачанное приложение и нажмите <b>+</b> (Добавить конфигурацию).\n"
         "4. Выберите «Импорт из буфера обмена».\n"
@@ -1673,8 +1686,8 @@ async def process_reset_ips(callback: CallbackQuery):
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🦊 v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={full_sub_link}"),
-                InlineKeyboardButton(text="🐰 Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={full_sub_link}")
+                InlineKeyboardButton(text="🔗 v2RayTun", url=f"https://guepardvpn.top/redirect.html?app=v2raytun&url={full_sub_link}"),
+                InlineKeyboardButton(text="🔗 Happ", url=f"https://guepardvpn.top/redirect.html?app=happ&url={full_sub_link}")
             ],
             [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")]
         ])
@@ -1694,7 +1707,7 @@ async def process_referral(callback: CallbackQuery):
     text = (
         "🤝 <b>Партнерская программа</b>\n\n"
         "Приглашайте друзей и получайте бонусные дни!\n"
-        "За первую и последующие оплаты приглашенного друга вы будете получать <b>+3 дня</b> к своей подписке.\n\n"
+        "Вы получите <b>+5 дней</b> за регистрацию друга по вашей ссылке, а также <b>+5 дней</b> за каждую его оплату подписки.\n\n"
         f"Ваша реферальная ссылка:\n<code>{ref_link}</code>\n\n"
         f"👥 Приглашено друзей: <b>{ref_count}</b>"
     )
@@ -1933,11 +1946,11 @@ async def process_successful_payment(message: Message):
     # Проверяем реферала и выдаем бонусы
     referrer_id = db.get_referrer(telegram_id)
     if referrer_id:
-        await grant_subscription_and_sync(referrer_id, 3)
+        await grant_subscription_and_sync(referrer_id, 5)
         try:
             await bot.send_message(
                 chat_id=referrer_id,
-                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал приобрел подписку. Вам начислено <b>+3 бонусных дня</b>!",
+                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал приобрел подписку. Вам начислено <b>+5 бонусных дней</b>!",
                 parse_mode="HTML"
             )
         except Exception as e:
@@ -2197,11 +2210,11 @@ async def check_yookassa_invoices():
                 # Рефералка
                 referrer_id = db.get_referrer(user_id)
                 if referrer_id:
-                    await grant_subscription_and_sync(referrer_id, 3)
+                    await grant_subscription_and_sync(referrer_id, 5)
                     try:
                         await bot.send_message(
                             chat_id=referrer_id,
-                            text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+3 бонусных дня</b>!",
+                            text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил подписку. Вам начислено <b>+5 бонусных дней</b>!",
                             parse_mode="HTML"
                         )
                     except Exception:
@@ -2405,11 +2418,11 @@ async def check_cryptopay_invoices():
                     # Рефералка
                     referrer_id = db.get_referrer(user_id)
                     if referrer_id:
-                        await grant_subscription_and_sync(referrer_id, 3)
+                        await grant_subscription_and_sync(referrer_id, 5)
                         try:
                             await bot.send_message(
                                 chat_id=referrer_id,
-                                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+3 бонусных дня</b>!",
+                                text=f"🎁 <b>Бонус!</b>\n\nВаш реферал оплатил криптовалютой. Вам начислено <b>+5 бонусных дней</b>!",
                                 parse_mode="HTML"
                             )
                         except Exception:
